@@ -1,0 +1,14 @@
+[Unit]
+Description=Bot Telegram - Financas
+After=network.target mariadb.service financas.service
+
+[Service]
+User=www-data
+WorkingDirectory=/opt/financas/backend
+EnvironmentFile=/opt/financas/backend/.env
+ExecStart=/opt/financas/venv/bin/python3 /opt/financas/backend/bot_telegram.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
