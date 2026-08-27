@@ -1,5 +1,5 @@
 ========================================
-  Planejamento Financeiro — Aryan
+  Planejamento Financeiro
   Stack: Nginx + FastAPI + MariaDB
 ========================================
 
