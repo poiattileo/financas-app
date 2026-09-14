@@ -1,52 +1,29 @@
-========================================
-  Planejamento Financeiro
-  Stack: Nginx + FastAPI + MariaDB
-========================================
+# Planejamento Financeiro
 
-INSTALAÇÃO RÁPIDA (Ubuntu 22.04 / 24.04)
-─────────────────────────────────────────
-1. Copie a pasta financas-app para a VM
+> Aplicação web para controle financeiro pessoal — simples, rápida e completa.
 
-2. Entre na pasta e rode o instalador:
-   sudo bash instalar.sh
+## Sobre
 
-   O script vai:
-   ✓ Instalar Nginx, MariaDB, Python 3
-   ✓ Criar o banco e as tabelas
-   ✓ Configurar o backend como serviço
-   ✓ Configurar o Nginx como proxy
-   ✓ Pedir para você criar seu usuário
-   ✓ Mostrar o IP de acesso no final
+O **Planejamento Financeiro** é uma plataforma de gestão de finanças pessoais que ajuda a organizar gastos, parcelas, lançamentos e metas em um painel moderno com suporte a múltiplos usuários. Foco em clareza, autonomia e visão de longo prazo.
 
-APÓS INSTALAR
-─────────────────────────────────────────
-• Acesse: http://IP_DA_VM
-• Login com o usuário que você criou
+## Para que serve
 
-CRIAR MAIS USUÁRIOS (futuramente)
-─────────────────────────────────────────
-  sudo -u www-data \
-    /opt/financas/venv/bin/python3 \
-    /opt/financas/backend/criar_usuario.py
+- **Organizar o orçamento** — Cadastro de salário, gastos fixos mensais e controle por categoria.
+- **Controlar parcelas** — Lançamento de compras parceladas com distribuição automática nos meses.
+- **Registrar movimentações** — Lançamentos avulsos com categoria, recorrência e local.
+- **Planejar objetivos** — Metas financeiras com acompanhamento de progresso.
+- **Visualizar a saúde financeira** — Painel com saldo, evolução e distribuição por período.
 
-LOGS E STATUS
-─────────────────────────────────────────
-  Status do backend:
-    systemctl status financas
+## Destaques
 
-  Logs em tempo real:
-    journalctl -u financas -f
+- Interface responsiva com tema claro/escuro
+- Autenticação segura com perfis de usuário
+- API moderna e frontend leve em página única
+- Dados isolados por usuário
 
-  Reiniciar:
-    sudo systemctl restart financas
+## Tecnologias
 
-ARQUIVOS NA VM APÓS INSTALAÇÃO
-─────────────────────────────────────────
-  /opt/financas/
-  ├── backend/
-  │   ├── main.py          ← API Python
-  │   ├── .env             ← senhas (geradas automaticamente)
-  │   └── criar_usuario.py ← para criar novos usuários
-  ├── frontend/
-  │   └── index.html       ← o site
-  └── venv/                ← ambiente Python
+FastAPI (Python) · MariaDB · Nginx · HTML/CSS/JS
+
+---
+*Projeto mantido pela equipe de desenvolvimento.*
