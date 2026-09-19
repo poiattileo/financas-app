@@ -353,34 +353,6 @@ def conversa_expirada(chat_id):
         return True
     return False
 
-def resolver_categoria(texto):
-    """Tenta mapear o texto p/ uma categoria existente; senão, 'outros'."""
-    try:
-        db = get_db(); cur = db.cursor(dictionary=True)
-        cur.execute("SELECT nome, label FROM categorias")
-        cats = cur.fetchall(); cur.close(); db.close()
-    except Exception:
-        return "outros"
-    norm = normalizar(texto)
-    for c in cats:
-        if norm in (normalizar(c["nome"]), normalizar(c["label"])):
-            return c["nome"]
-    for c in cats:
-        if normalizar(c["nome"]).startswith(norm) or normalizar(c["label"]).startswith(norm):
-            return c["nome"]
-    return "outros"
-
-def hint_categorias():
-    try:
-        db = get_db(); cur = db.cursor(dictionary=True)
-        cur.execute("SELECT label FROM categorias ORDER BY label LIMIT 12")
-        labels = [r["label"] for r in cur.fetchall()]; cur.close(); db.close()
-    except Exception:
-        labels = []
-    if not labels:
-        return ""
-    return "\nEx: " + ", ".join(labels)
-
 def _mes_ou_trabalho(t, mes_inicio):
     """Interpreta o mês digitado; '-' ou vazio = mês de trabalho."""
     t = (t or "").strip()
@@ -388,91 +360,110 @@ def _mes_ou_trabalho(t, mes_inicio):
         return idx_trabalho(mes_inicio or "")
     return parse_mes(t, mes_inicio or "")
 
+def buscar_gasto_por_nome(user_id, nome):
+    db = get_db(); cur = db.cursor(dictionary=True)
+    cur.execute("SELECT id, nome, cat FROM gastos WHERE user_id=%s", (user_id,))
+    gastos = cur.fetchall()
+    cur.close(); db.close()
+    norm = normalizar(nome)
+    for g in gastos:
+        if normalizar(g["nome"]) == norm:
+            return g
+    return None
+
+def nome_mes_idx(mes_inicio_str, idx):
+    try:
+        y0, m0 = map(int, mes_inicio_str.split("-"))
+        tot = (y0 * 12 + m0 - 1) + idx
+        ano, mes = tot // 12, tot % 12 + 1
+        nomes = ["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"]
+        return f"{nomes[mes-1]}/{ano}"
+    except Exception:
+        return f"mês {idx}"
+
+def processar_parcelado(user, linhas):
+    """Mensagem única de parcelado (5 linhas). Se o nome bater com um gasto
+    fixo, soma as parcelas nele mês a mês; senão cria compra parcelada nova."""
+    nome = linhas[0].strip()
+    total = parse_valor(linhas[1]) if len(linhas) > 1 else None
+    m = re.match(r"(\d+)", linhas[2]) if len(linhas) > 2 else None
+    qtd = int(m.group(1)) if m else 0
+    mes_raw = linhas[3] if len(linhas) > 3 else ""
+    motivo = linhas[4].strip() if len(linhas) > 4 else ""
+    if not nome:
+        return "❌ Faltou o nome do gasto."
+    if total is None or total <= 0:
+        return "❌ Não entendi o valor total. Use algo como `1200`."
+    if not 1 <= qtd <= 48:
+        return "❌ Quantidade inválida. Manda de 1 a 48 (ex: `12` ou `12x`)."
+    mes_inicio = user.get("mes_inicio") or ""
+    idx_ini = _mes_ou_trabalho(mes_raw, mes_inicio)
+    if idx_ini is None:
+        return "❌ Não entendi o mês. Manda tipo `agosto`, `08/2026` ou deixa em branco."
+    total = abs(total)
+    vp = round(total / qtd, 2)
+    gasto = buscar_gasto_por_nome(user["id"], nome)
+    if gasto:
+        db = get_db(); cur = db.cursor(dictionary=True)
+        feitas = 0
+        for k in range(qtd):
+            idx = idx_ini + k
+            if idx >= 48:
+                break
+            cur.execute("SELECT valor FROM gasto_valores WHERE gasto_id=%s AND idx=%s", (gasto["id"], idx))
+            row = cur.fetchone()
+            novo = round((float(row["valor"]) if row else 0.0) + vp, 2)
+            cur.execute("INSERT INTO gasto_valores (gasto_id,idx,valor) VALUES (%s,%s,%s) ON DUPLICATE KEY UPDATE valor=%s",
+                (gasto["id"], idx, novo, novo))
+            feitas += 1
+        cur.close(); db.close()
+        resp = (f"✅ *{gasto['nome']}* atualizado!\n"
+                f"{feitas}x de R$ {vp:.2f} somadas mês a mês\n"
+                f"📅 {nome_mes_idx(mes_inicio, idx_ini)} → {nome_mes_idx(mes_inicio, idx_ini + feitas - 1)}")
+        if feitas < qtd:
+            resp += f"\n⚠️ {qtd - feitas} parcela(s) além de 48 meses ignoradas."
+        if motivo:
+            resp += f"\n💬 _{motivo}_"
+        return resp
+    db = get_db(); cur = db.cursor()
+    cur.execute(
+        "INSERT INTO parcelas (user_id,nome,cat,total,qtd,mes_idx,valor_parcela) VALUES (%s,%s,'outros',%s,%s,%s,%s)",
+        (user["id"], nome, round(total, 2), qtd, idx_ini, vp))
+    cur.close(); db.close()
+    resp = (f"✅ Parcelado registrado!\n*{nome}* — {qtd}x de R$ {vp:.2f} "
+            f"(total R$ {total:.2f})\n"
+            f"📅 {nome_mes_idx(mes_inicio, idx_ini)} → {nome_mes_idx(mes_inicio, idx_ini + qtd - 1)}")
+    if motivo:
+        resp += f"\n💬 _{motivo}_"
+    return resp
+
 def processar_conversa(chat_id, user, texto):
+    """Após escolher o tipo no /lancar, o usuário manda TUDO em uma mensagem."""
     if conversa_expirada(chat_id):
         return "⏰ A conversa expirou. Mande /lancar para começar de novo."
     est = conversas[chat_id]
-    etapa = est["etapa"]
-    dados = est["dados"]
-    t = texto.strip()
-    mes_inicio = user.get("mes_inicio") or ""
-
+    linhas = [l.strip() for l in texto.strip().split("\n") if l.strip()]
     if est["tipo"] == "rapido":
-        if etapa == "r_desc":
-            if len(t) < 2:
-                return "❌ Descrição muito curta. Manda de novo (ou /cancelar)."
-            dados["desc"] = t
-            est["etapa"] = "r_valor"
-            return f"*{t}*\nAgora o valor (ex: `12,50`)"
-        if etapa == "r_valor":
-            v = parse_valor(t)
-            if v is None or v <= 0:
-                return "❌ Não entendi o valor. Manda algo como `12,50` (ou /cancelar)."
-            dados["valor"] = abs(v)
-            est["etapa"] = "r_mes"
-            return "Mês? (ex: `outubro`, `10/2026` ou `-` para o mês de trabalho)"
-        if etapa == "r_mes":
-            idx = _mes_ou_trabalho(t, mes_inicio)
-            if idx is None:
-                return "❌ Não entendi o mês. Manda tipo `outubro`, `10/2026` ou `-` (ou /cancelar)."
-            dados["idx"] = idx
-            est["etapa"] = "r_motivo"
-            return "Motivo? (ou `-` para pular)"
-        if etapa == "r_motivo":
-            motivo = "" if t in ("-", "pular") else t
-            db = get_db(); cur = db.cursor()
-            cur.execute(
-                "INSERT INTO lancamentos (user_id,descricao,valor,cat,local_nome,recorrencia,motivo,mes_idx,tipo_ajuste) VALUES (%s,%s,%s,'outros','','nunca',%s,%s,NULL)",
-                (user["id"], dados["desc"], dados["valor"], motivo, dados["idx"]))
-            cur.close(); db.close()
-            conversas.pop(chat_id, None)
-            resp = f"✅ Lançamento registrado!\n*{dados['desc']}* — R$ {dados['valor']:.2f}"
-            if motivo:
-                resp += f"\n💬 _{motivo}_"
-            return resp
-        return "❌ Etapa inválida. Mande /lancar para recomeçar."
-
-    # parcelado
-    if etapa == "p_desc":
-        if len(t) < 2:
-            return "❌ Descrição muito curta. Manda de novo (ou /cancelar)."
-        dados["desc"] = t
-        est["etapa"] = "p_total"
-        return f"*{t}*\nValor total? (ex: `1200`)"
-    if etapa == "p_total":
-        v = parse_valor(t)
-        if v is None or v <= 0:
-            return "❌ Não entendi o valor. Manda algo como `1200` (ou /cancelar)."
-        dados["total"] = abs(v)
-        est["etapa"] = "p_qtd"
-        return "Em quantas parcelas? (ex: `12`)"
-    if etapa == "p_qtd":
-        m = re.match(r"(\d+)", t)
-        qtd = int(m.group(1)) if m else 0
-        if not 1 <= qtd <= 48:
-            return "❌ Quantidade inválida. Manda um número de 1 a 48 (ou /cancelar)."
-        dados["qtd"] = qtd
-        est["etapa"] = "p_mes"
-        return "Mês da 1ª parcela? (ex: `outubro`, `10/2026` ou `-` para o mês de trabalho)"
-    if etapa == "p_mes":
-        idx = _mes_ou_trabalho(t, mes_inicio)
-        if idx is None:
-            return "❌ Não entendi o mês. Manda tipo `outubro`, `10/2026` ou `-` (ou /cancelar)."
-        dados["idx"] = idx
-        est["etapa"] = "p_cat"
-        return "Categoria? (ou `-` para Outros)" + hint_categorias()
-    if etapa == "p_cat":
-        cat = "outros" if t in ("", "-", "pular") else resolver_categoria(t)
-        vp = round(dados["total"] / dados["qtd"], 2)
-        db = get_db(); cur = db.cursor()
-        cur.execute(
-            "INSERT INTO parcelas (user_id,nome,cat,total,qtd,mes_idx,valor_parcela) VALUES (%s,%s,%s,%s,%s,%s,%s)",
-            (user["id"], dados["desc"], cat, dados["total"], dados["qtd"], dados["idx"], vp))
-        cur.close(); db.close()
+        if len(linhas) < 2:
+            return ("⚠️ Formato incompleto. Envie tudo em uma mensagem assim:\n"
+                    "```\nDescrição\nValor\nMês (opcional)\nMotivo (opcional)\n```")
+        try:
+            resp = processar_lancamento(user, linhas)
+        except Exception as e:
+            return f"❌ Erro ao processar: {e}"
         conversas.pop(chat_id, None)
-        return (f"✅ Parcelado registrado!\n*{dados['desc']}* — {dados['qtd']}x de R$ {vp:.2f} "
-                f"(total R$ {dados['total']:.2f})")
-    return "❌ Etapa inválida. Mande /lancar para recomeçar."
+        return resp
+    if len(linhas) < 3:
+        return ("⚠️ Formato incompleto. Envie tudo em uma mensagem assim:\n"
+                "```\nNome do gasto\nValor total\nQuantas parcelas\nMês início (opcional)\nMotivo (opcional)\n```")
+    try:
+        resp = processar_parcelado(user, linhas)
+    except Exception as e:
+        return f"❌ Erro ao processar: {e}"
+    # em erro de validação (❌) mantém a conversa p/ reenviar corrigido
+    if resp.startswith("✅"):
+        conversas.pop(chat_id, None)
+    return resp
 
 def processar_callback(chat_id, callback_data):
     user = buscar_usuario_por_chat(chat_id)
@@ -480,11 +471,20 @@ def processar_callback(chat_id, callback_data):
         return "⚠️ Você não está vinculado a nenhuma conta."
     if callback_data == "lan_rapido" or callback_data == "lan_parcelado":
         tipo = "rapido" if callback_data == "lan_rapido" else "parcelado"
-        conversas[chat_id] = {"tipo": tipo, "etapa": "r_desc" if tipo == "rapido" else "p_desc",
-                              "dados": {}, "inicio": time.time()}
+        conversas[chat_id] = {"tipo": tipo, "inicio": time.time()}
         if tipo == "rapido":
-            return "⚡ *Lançamento rápido*\nManda a descrição (ex: `Coxinha`)"
-        return "💳 *Compra parcelada*\nManda a descrição (ex: `TV`)"
+            return ("⚡ *Lançamento rápido*\n"
+                    "Envie tudo em uma mensagem assim:\n"
+                    "```\nDescrição\nValor\nMês (opcional)\nMotivo (opcional)\n```\n"
+                    "• Se bater com um gasto fixo → ajusta ele (use `-` p/ subtrair)\n"
+                    "• Se não bater → cria avulso\n\n"
+                    "*Exemplo:*\n```\nCoxinha\n12,50\noutubro\nLanche da tarde\n```")
+        return ("💳 *Compra parcelada*\n"
+                "Envie assim:\n"
+                "```\nNome do gasto\nValor total\nQuantas parcelas\nMês início (opcional)\nMotivo (opcional)\n```\n"
+                "• Se o Nome bater com um gasto fixo já cadastrado → soma as parcelas nele, mês a mês\n"
+                "• Se não bater → cria uma compra parcelada nova e separada\n\n"
+                "*Exemplo:*\n```\nCartão Nubank\n1200\n12x\nagosto\nTV nova\n```")
     mapa = {
         "rel_resumo": relatorio_resumo_mes,
         "rel_fixos": relatorio_gastos_fixos,
@@ -528,6 +528,7 @@ def processar_mensagem(chat_id, texto):
                 "• *Mês* pode ser tipo `agosto` ou `08/2026`. Se não informar, usa o mês atual.\n"
                 "• *Motivo* fica salvo e aparece quando você passar o mouse no valor, no site.\n\n"
                 "*Exemplo:*\n```\nMelody\n-35.42\njulho\nFulano pagou a parte dele\n```\n\n"
+                "Para parcelado, use /lancar → 💳 (nome bate com fixo = soma nele, senão cria separado).\n\n"
                 "Digite /relatorios para ver relatórios rápidos!\n\n"
                 "Ou use /lancar para o registro guiado (rápido ou parcelado).")
 
