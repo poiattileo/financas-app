@@ -1285,15 +1285,21 @@ function idxHoje(){const n=new Date();return strParaIdx(`${n.getFullYear()}-${St
 const OFFSET_MES_TRABALHO=1;
 function idxTrabalho(){return idxHoje()+OFFSET_MES_TRABALHO;}
 function mesRefParaLabel(ref){if(!ref||ref.length<7)return ref||'';const[y,m]=ref.split('-').map(Number);if(!y||!m)return ref;return new Date(y,m-1,1).toLocaleString('pt-BR',{month:'long',year:'numeric'});}
+function mesCurto(d){return d.toLocaleString('pt-BR',{month:'short'}).replace('.','');}
+// Cabeçalho das colunas: "out/nov 26" (mês anterior + mês + ano).
 function mesLabel(idx,short=true){
   if(!cfg.mes_inicio||cfg.mes_inicio.trim()===''){
     // fallback: usa mês atual como base
     const n=new Date();
     const d=new Date(n.getFullYear(),n.getMonth()+idx,1);
-    return short?d.toLocaleString('pt-BR',{month:'short',year:'2-digit'}).replace('. ','/'):d.toLocaleString('pt-BR',{month:'long',year:'numeric'});
+    if(!short)return d.toLocaleString('pt-BR',{month:'long',year:'numeric'});
+    const p=new Date(n.getFullYear(),n.getMonth()+idx-1,1);
+    return `${mesCurto(p)}/${mesCurto(d)} ${String(d.getFullYear()).slice(2)}`;
   }
   const[y,m]=cfg.mes_inicio.split('-').map(Number),d=new Date(y,m-1+idx,1);
-  return short?d.toLocaleString('pt-BR',{month:'short',year:'2-digit'}).replace('. ','/'):d.toLocaleString('pt-BR',{month:'long',year:'numeric'});
+  if(!short)return d.toLocaleString('pt-BR',{month:'long',year:'numeric'});
+  const p=new Date(y,m-1+idx-1,1);
+  return `${mesCurto(p)}/${mesCurto(d)} ${String(d.getFullYear()).slice(2)}`;
 }
 function calcParcelasIdx(){
   const arr=Array(MESES).fill(0);
