@@ -76,3 +76,30 @@ CREATE TABLE IF NOT EXISTS lancamento_anexos (
 -- Adicionar colunas motivo e mes_idx se não existirem (caso ainda não foram adicionadas)
 ALTER TABLE lancamentos ADD COLUMN IF NOT EXISTS motivo VARCHAR(200) DEFAULT '';
 ALTER TABLE lancamentos ADD COLUMN IF NOT EXISTS mes_idx TINYINT DEFAULT NULL;
+
+-- Colunas telegram (usadas pela API/bot)
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS telegram_chat_id VARCHAR(50) DEFAULT NULL;
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS telegram_link_code VARCHAR(10) DEFAULT NULL;
+
+-- Índices de mês como INT (suporta deslocamento p/ histórico e 48 meses)
+ALTER TABLE gasto_valores MODIFY COLUMN idx INT NOT NULL;
+ALTER TABLE parcelas MODIFY COLUMN mes_idx INT NOT NULL;
+ALTER TABLE lancamentos MODIFY COLUMN mes_idx INT DEFAULT NULL;
+
+-- Histórico com snapshot congelado (mês fechado sai da tela principal)
+CREATE TABLE IF NOT EXISTS historico_meses (
+    id          INT AUTO_INCREMENT PRIMARY KEY,
+    user_id     INT NOT NULL,
+    mes_ref     VARCHAR(7) NOT NULL,
+    mes_idx     INT NOT NULL DEFAULT 0,
+    salario     DECIMAL(12,2) DEFAULT 0,
+    fixos       DECIMAL(12,2) DEFAULT 0,
+    parcelas    DECIMAL(12,2) DEFAULT 0,
+    lancamentos DECIMAL(12,2) DEFAULT 0,
+    total       DECIMAL(12,2) DEFAULT 0,
+    sobra       DECIMAL(12,2) DEFAULT 0,
+    detalhes    TEXT NULL,
+    criado_em   DATETIME DEFAULT NOW(),
+    UNIQUE KEY uq_hist_user_mes (user_id, mes_ref),
+    FOREIGN KEY (user_id) REFERENCES usuarios(id) ON DELETE CASCADE
+);

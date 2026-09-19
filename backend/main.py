@@ -125,6 +125,17 @@ class CategoriaInput(BaseModel):
     cor: str
     tipo: str  # "gasto" | "lancamento" | "ambos"
 
+class HistoricoFecharInput(BaseModel):
+    mes_idx: int
+    mes_ref: str  # "YYYY-MM" absoluto, imune a troca de mes_inicio
+    salario: float = 0
+    fixos: float = 0
+    parcelas: float = 0
+    lancamentos: float = 0
+    total: float = 0
+    sobra: float = 0
+    detalhes: Optional[str] = ""
+
 # ── AUTH ──
 @app.post("/api/login")
 def login(data: LoginInput):
@@ -174,9 +185,38 @@ def update_salario(data: SalarioInput, user=Depends(verificar_token)):
 
 @app.put("/api/config/mes-inicio")
 def update_mes_inicio(data: ConfigInput, user=Depends(verificar_token)):
-    db = get_db(); cur = db.cursor()
+    import re
+    if not re.match(r"^\d{4}-\d{2}$", data.mes_inicio or ""):
+        raise HTTPException(status_code=400, detail="Formato inválido (YYYY-MM)")
+    db = get_db(); cur = db.cursor(dictionary=True)
+    cur.execute("SELECT mes_inicio FROM usuarios WHERE id = %s", (user["id"],))
+    row = cur.fetchone()
+    antigo = (row or {}).get("mes_inicio") or ""
+    if not antigo or antigo == data.mes_inicio:
+        cur.execute("UPDATE usuarios SET mes_inicio=%s WHERE id=%s", (data.mes_inicio, user["id"]))
+        cur.close(); db.close(); return {"ok": True, "offset": 0}
+    ya, ma = map(int, antigo.split("-")); yn, mn = map(int, data.mes_inicio.split("-"))
+    offset = (yn - ya) * 12 + (mn - ma)
+    if offset != 0:
+        # Reposiciona gasto_valores preservando a data de calendário:
+        # novo_idx = antigo_idx - offset (ex: base jan->fev, o que era idx1/agosto vira idx0)
+        cur.execute("SELECT id FROM gastos WHERE user_id=%s", (user["id"],))
+        gids = [r["id"] for r in cur.fetchall()]
+        for gid in gids:
+            cur.execute("SELECT idx, valor FROM gasto_valores WHERE gasto_id=%s", (gid,))
+            vals = {r["idx"]: float(r["valor"]) for r in cur.fetchall()}
+            novos = {}
+            for old_idx, v in vals.items():
+                ni = old_idx - offset
+                if 0 <= ni < 48:
+                    novos[ni] = v
+            cur.execute("DELETE FROM gasto_valores WHERE gasto_id=%s", (gid,))
+            for ni, v in novos.items():
+                cur.execute("INSERT INTO gasto_valores (gasto_id,idx,valor) VALUES (%s,%s,%s)", (gid, ni, v))
+        cur.execute("UPDATE parcelas SET mes_idx=mes_idx-%s WHERE user_id=%s", (offset, user["id"]))
+        cur.execute("UPDATE lancamentos SET mes_idx=mes_idx-%s WHERE user_id=%s AND mes_idx IS NOT NULL", (offset, user["id"]))
     cur.execute("UPDATE usuarios SET mes_inicio=%s WHERE id=%s", (data.mes_inicio, user["id"]))
-    cur.close(); db.close(); return {"ok": True}
+    cur.close(); db.close(); return {"ok": True, "offset": offset}
 
 # ── TELEGRAM ──
 @app.get("/api/telegram/status")
@@ -405,6 +445,67 @@ def comparativo(user=Depends(verificar_token)):
     rows = cur.fetchall(); cur.close(); db.close()
     for r in rows: r["total"]=float(r["total"])
     return rows
+
+# ── HISTÓRICO (snapshots congelados de meses fechados) ──
+@app.get("/api/historico")
+def listar_historico(user=Depends(verificar_token)):
+    db = get_db(); cur = db.cursor(dictionary=True)
+    cur.execute("SELECT * FROM historico_meses WHERE user_id=%s ORDER BY mes_ref", (user["id"],))
+    rows = cur.fetchall(); cur.close(); db.close()
+    for r in rows:
+        for k in ("salario", "fixos", "parcelas", "lancamentos", "total", "sobra"):
+            try: r[k] = float(r[k] or 0)
+            except Exception: r[k] = 0.0
+        try: r["criado_em"] = r["criado_em"].isoformat() if r.get("criado_em") else ""
+        except Exception: r["criado_em"] = ""
+    return rows
+
+@app.post("/api/historico/fechar")
+def fechar_mes(data: HistoricoFecharInput, user=Depends(verificar_token)):
+    import re
+    if not re.match(r"^\d{4}-\d{2}$", data.mes_ref or ""):
+        raise HTTPException(status_code=400, detail="mes_ref inválido (YYYY-MM)")
+    db = get_db(); cur = db.cursor()
+    cur.execute(
+        """INSERT INTO historico_meses (user_id,mes_ref,mes_idx,salario,fixos,parcelas,lancamentos,total,sobra,detalhes)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        ON DUPLICATE KEY UPDATE mes_idx=%s,salario=%s,fixos=%s,parcelas=%s,lancamentos=%s,total=%s,sobra=%s,detalhes=%s""",
+        (user["id"], data.mes_ref, data.mes_idx, data.salario, data.fixos, data.parcelas,
+         data.lancamentos, data.total, data.sobra, data.detalhes or "",
+         data.mes_idx, data.salario, data.fixos, data.parcelas, data.lancamentos,
+         data.total, data.sobra, data.detalhes or ""))
+    hid = cur.lastrowid; cur.close(); db.close()
+    return {"ok": True, "id": hid, "mes_ref": data.mes_ref}
+
+@app.delete("/api/historico/{hid}")
+def reabrir_mes(hid: int, user=Depends(verificar_token)):
+    db = get_db(); cur = db.cursor()
+    cur.execute("DELETE FROM historico_meses WHERE id=%s AND user_id=%s", (hid, user["id"]))
+    cur.close(); db.close(); return {"ok": True}
+
+@app.on_event("startup")
+def garantir_tabela_historico():
+    try:
+        db = get_db(); cur = db.cursor()
+        cur.execute("""CREATE TABLE IF NOT EXISTS historico_meses (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            user_id INT NOT NULL,
+            mes_ref VARCHAR(7) NOT NULL,
+            mes_idx INT NOT NULL DEFAULT 0,
+            salario DECIMAL(12,2) DEFAULT 0,
+            fixos DECIMAL(12,2) DEFAULT 0,
+            parcelas DECIMAL(12,2) DEFAULT 0,
+            lancamentos DECIMAL(12,2) DEFAULT 0,
+            total DECIMAL(12,2) DEFAULT 0,
+            sobra DECIMAL(12,2) DEFAULT 0,
+            detalhes TEXT NULL,
+            criado_em DATETIME DEFAULT NOW(),
+            UNIQUE KEY uq_hist_user_mes (user_id, mes_ref),
+            FOREIGN KEY (user_id) REFERENCES usuarios(id) ON DELETE CASCADE
+        )""")
+        cur.close(); db.close()
+    except Exception:
+        pass
 
 # ── ADMIN: USUÁRIOS ──
 @app.get("/api/admin/usuarios")

@@ -112,6 +112,11 @@ def idx_hoje(mes_inicio_str):
     n = datetime.now()
     return idx_do_mes(mes_inicio_str, n.year, n.month)
 
+# Mês de trabalho = calendário +1 (em setembro já se planeja outubro).
+OFFSET_MES_TRABALHO = 1
+def idx_trabalho(mes_inicio_str):
+    return idx_hoje(mes_inicio_str) + OFFSET_MES_TRABALHO
+
 def parse_mes(texto, mes_inicio_str):
     """Retorna o indice do mes a partir do texto (nome do mes ou MM/AAAA), ou None se vazio."""
     texto = texto.strip()
@@ -129,7 +134,7 @@ def parse_mes(texto, mes_inicio_str):
             ano = datetime.now().year
             # se o mes calculado for muito anterior ao atual, assume ano seguinte
             idx_candidato = idx_do_mes(mes_inicio_str, ano, num)
-            if idx_candidato < idx_hoje(mes_inicio_str) - 6:
+            if idx_candidato < idx_trabalho(mes_inicio_str) - 6:
                 idx_candidato = idx_do_mes(mes_inicio_str, ano+1, num)
             return idx_candidato
     return None
@@ -156,7 +161,7 @@ def processar_lancamento(user, linhas):
     mes_inicio = user.get("mes_inicio") or ""
     idx = parse_mes(mes_raw, mes_inicio)
     if idx is None:
-        idx = idx_hoje(mes_inicio)
+        idx = idx_trabalho(mes_inicio)
 
     # busca gastos fixos do usuario
     db = get_db(); cur = db.cursor(dictionary=True)
@@ -254,7 +259,7 @@ def calc_totais_mes(user, idx):
     }
 
 def relatorio_resumo_mes(user):
-    idx = idx_hoje(user.get("mes_inicio") or "")
+    idx = idx_trabalho(user.get("mes_inicio") or "")
     d = calc_totais_mes(user, idx)
     mes_nome = datetime.now().strftime("%B/%Y")
     txt = (f"📊 *Resumo — {mes_nome}*\n\n"
@@ -268,7 +273,7 @@ def relatorio_resumo_mes(user):
     return txt
 
 def relatorio_gastos_fixos(user):
-    idx = idx_hoje(user.get("mes_inicio") or "")
+    idx = idx_trabalho(user.get("mes_inicio") or "")
     d = calc_totais_mes(user, idx)
     if not d["detalhes_fixos"]:
         return "📋 Nenhum gasto fixo com valor neste mês."
@@ -276,7 +281,7 @@ def relatorio_gastos_fixos(user):
     return f"📋 *Gastos fixos do mês:*\n\n{linhas}\n\n*Total: R$ {d['fixos']:.2f}*"
 
 def relatorio_lancamentos_mes(user):
-    idx = idx_hoje(user.get("mes_inicio") or "")
+    idx = idx_trabalho(user.get("mes_inicio") or "")
     d = calc_totais_mes(user, idx)
     if not d["detalhes_lanc"]:
         return "⚡ Nenhum lançamento registrado neste mês ainda."
@@ -298,7 +303,7 @@ def relatorio_metas(user):
 
 def relatorio_historico(user):
     mes_inicio = user.get("mes_inicio") or ""
-    ih = idx_hoje(mes_inicio)
+    ih = idx_trabalho(mes_inicio)
     if ih <= 0:
         return "📅 Nenhum mês no histórico ainda."
     linhas = []

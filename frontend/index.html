@@ -1150,7 +1150,7 @@ input[type=number]{-moz-appearance:textfield}
     <h3>⚙️ Configurações</h3>
     <div class="cfg-row">
       <div class="cfg-label">Mês de início do planejamento</div>
-      <div class="cfg-sub">Meses anteriores ao atual vão para o Histórico.</div>
+      <div class="cfg-sub">Você trabalha com o mês seguinte (ex: em setembro planeja outubro). Meses anteriores ao mês de trabalho saem da tela principal e vão para o Histórico.</div>
       <div class="field" style="margin-top:8px;margin-bottom:0"><input type="month" id="cfg-mes" onchange="previewCfg()"></div>
       <div id="cfg-preview" style="font-size:12px;color:var(--amber);margin-top:4px"></div>
       <button class="btn btn-primary" onclick="salvarCfg()" style="margin-top:10px">Salvar</button>
@@ -1223,6 +1223,7 @@ let token=localStorage.getItem('fin_token')||'';
 let currentUser={id:null,username:'',role:'user'};
 let cfg={salario:0,mes_inicio:''};
 let gastos=[],parcelas=[],lancamentos=[],metas=[],comparativo=[],categorias=[];
+let historicoFechados=[];
 let repetirLanc=null,aportarMetaId=null,editUserId=null,editCatId=null,recSel='nunca',repSel='agora',corSel='green';
 
 // ── UTILS ──
@@ -1279,6 +1280,11 @@ function atualizarBtnTema(){
 function strParaIdx(s){if(!cfg.mes_inicio||!s)return 0;const[y0,m0]=cfg.mes_inicio.split('-').map(Number),[y1,m1]=s.split('-').map(Number);return(y1-y0)*12+(m1-m0);}
 function idxParaStr(idx){if(!cfg.mes_inicio)return'';const[y,m]=cfg.mes_inicio.split('-').map(Number),d=new Date(y,m-1+idx,1);return`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;}
 function idxHoje(){const n=new Date();return strParaIdx(`${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}`);}
+// Mês de trabalho = calendário +1: em setembro já se planeja outubro.
+// A tabela principal começa no mês de trabalho; tudo antes vai pro Histórico.
+const OFFSET_MES_TRABALHO=1;
+function idxTrabalho(){return idxHoje()+OFFSET_MES_TRABALHO;}
+function mesRefParaLabel(ref){if(!ref||ref.length<7)return ref||'';const[y,m]=ref.split('-').map(Number);if(!y||!m)return ref;return new Date(y,m-1,1).toLocaleString('pt-BR',{month:'long',year:'numeric'});}
 function mesLabel(idx,short=true){
   if(!cfg.mes_inicio||cfg.mes_inicio.trim()===''){
     // fallback: usa mês atual como base
@@ -1344,13 +1350,15 @@ async function iniciarApp(){
 }
 async function carregarTudo(){
   try{
-    const[c,g,p,l,m,comp,cats,todos]=await Promise.all([
+    const[c,g,p,l,m,comp,cats,todos,hist]=await Promise.all([
       api('GET','/config'),api('GET','/gastos'),api('GET','/parcelas'),
       api('GET','/lancamentos'),api('GET','/metas'),api('GET','/comparativo'),
-      api('GET','/categorias'),api('GET','/lancamentos-todos')
+      api('GET','/categorias'),api('GET','/lancamentos-todos'),
+      api('GET','/historico').catch(()=>[])
     ]);
     cfg=c;gastos=g;parcelas=p;lancamentos=l;metas=m;comparativo=comp;categorias=cats;
-    todosLancamentos=todos;
+    todosLancamentos=todos||[];
+    historicoFechados=hist||[];
     // SEMPRE garantir que mes_inicio é válido antes de qualquer render
     if(!cfg.mes_inicio || cfg.mes_inicio.trim()===''){
       const n=new Date();
@@ -1378,7 +1386,7 @@ function goTab(id){
   if(id==='sorteio')initSorteio();
   if(id==='lrapidos'){carregarTodosLancamentos().then(()=>renderAbaLR());}
 }
-function atualizarBadge(){const q=Math.max(0,idxHoje()),btn=document.getElementById('bn-historico');const old=btn?.querySelector('.bn-badge');if(old)old.remove();if(q>0){const b=document.createElement('span');b.className='bn-badge';b.textContent=q;btn?.appendChild(b);}}
+function atualizarBadge(){const q=Math.max(0,idxTrabalho()),btn=document.getElementById('bn-historico');const old=btn?.querySelector('.bn-badge');if(old)old.remove();if(q>0){const b=document.createElement('span');b.className='bn-badge';b.textContent=q;btn?.appendChild(b);}}
 
 // ── SALÁRIO ──
 function atualizarSalDisplay(){const t=document.getElementById('sal-txt');if(cfg.salario>0){t.textContent=fmt(cfg.salario);t.classList.remove('empty');}else{t.textContent='definir';t.classList.add('empty');}}
@@ -1390,7 +1398,7 @@ function fecharSalario(){document.getElementById('sal-edit').classList.remove('o
 
 // ── SOBRA ──
 function calcSobraHoje(){
-  const ih=idxHoje(),sal=cfg.salario||0,parc=calcParcelasIdx(),lancIdx=calcLancIdx();
+  const ih=idxTrabalho(),sal=cfg.salario||0,parc=calcParcelasIdx(),lancIdx=calcLancIdx();
   const fixos=round2(gastos.reduce((s,g)=>s+(g.valores[ih]||0),0));
   const pm=round2(parc[ih]||0),lm=round2(lancIdx[ih]||0);
   const tot=round2(fixos+pm+lm);
@@ -1417,16 +1425,17 @@ function animarNumero(el, valorFinal, prefixo='R$ '){
 function renderSobraBanner(){
   const{sal,fixos,pm,lm,tot,sobra}=calcSobraHoje();
   const banner=document.getElementById('sobra-banner');
+  const it=idxTrabalho(),mesTrab=it>=0&&it<MESES?mesLabel(it,false):'';
   // verifica se já existe (para animar) ou cria do zero
   if(!banner.querySelector('.sb-val')){
     banner.innerHTML=`
-      <div class="sb-item fade-in"><span class="sb-label">Salário</span><span class="sb-val b" id="sb-sal" data-valor="0">${fmt(sal)}</span></div>
+      <div class="sb-item fade-in"><span class="sb-label">Salário · ${mesTrab}</span><span class="sb-val b" id="sb-sal" data-valor="0">${fmt(sal)}</span></div>
       <div class="sb-sep fade-in anim-delay-1"></div>
       <div class="sb-item fade-in anim-delay-1"><span class="sb-label">Fixos</span><span class="sb-val r" id="sb-fixos" data-valor="0">${fmt(fixos)}</span></div>
       <div class="sb-item fade-in anim-delay-2"><span class="sb-label">Parcelas</span><span class="sb-val r" id="sb-parc" data-valor="0">${fmt(pm)}</span></div>
       <div class="sb-item fade-in anim-delay-3"><span class="sb-label">Lançamentos</span><span class="sb-val o" id="sb-lanc" data-valor="0">${fmt(lm)}</span></div>
       <div class="sb-sep fade-in anim-delay-4"></div>
-      <div class="sb-item fade-in anim-delay-4"><span class="sb-label">Sobra do mês</span><span class="sb-val ${sobra>=0?'g':'r'}" id="sb-sobra" data-valor="0">${fmt(sobra)}</span></div>`;
+      <div class="sb-item fade-in anim-delay-4"><span class="sb-label">Sobra · ${mesTrab}</span><span class="sb-val ${sobra>=0?'g':'r'}" id="sb-sobra" data-valor="0">${fmt(sobra)}</span></div>`;
     // anima entrada
     setTimeout(()=>{
       animarNumero(document.getElementById('sb-sal'), sal);
@@ -1452,56 +1461,21 @@ function renderSobraBanner2(){
 }
 
 // ── CONFIG ──
-function previewCfg(){const v=document.getElementById('cfg-mes').value;if(!v){document.getElementById('cfg-preview').textContent='';return;}const[y,m]=v.split('-').map(Number),n=new Date(),p=(n.getFullYear()-y)*12+(n.getMonth()+1-m);document.getElementById('cfg-preview').textContent=p>0?`⚠ ${p} mês(es) → Histórico.`:p===0?'✓ Mês atual.':'✓ Mês futuro.';}
+function previewCfg(){const v=document.getElementById('cfg-mes').value;if(!v){document.getElementById('cfg-preview').textContent='';return;}const[y,m]=v.split('-').map(Number),n=new Date();let wm=n.getMonth()+1+OFFSET_MES_TRABALHO,wy=n.getFullYear();while(wm>12){wm-=12;wy++;}const p=(wy-y)*12+(wm-m);document.getElementById('cfg-preview').textContent=p>0?`⚠ ${p} mês(es) → Histórico.`:p===0?'✓ Mês de trabalho atual.':'✓ Mês futuro.';}
 async function salvarCfg(){
   const v=document.getElementById('cfg-mes').value;
   if(!v){toast('Selecione um mês','err');return;}
   try{
-    // calcular deslocamento entre mês antigo e novo
-    const mesAntigo=cfg.mes_inicio;
+    // O servidor desloca gasto_valores/parcelas/lançamentos preservando a data
+    // de calendário, então basta salvar e recarregar tudo do banco.
     await api('PUT','/config/mes-inicio',{mes_inicio:v});
-
-    if(mesAntigo && mesAntigo!==v){
-      // calcular quantos meses deslocou
-      const[ya,ma]=mesAntigo.split('-').map(Number);
-      const[yn,mn]=v.split('-').map(Number);
-      const offset=(yn-ya)*12+(mn-ma); // positivo = avançou (ex: julho->agosto = +1)
-
-      if(offset!==0){
-        // deslocar valores de todos os gastos em memória
-        // se offset=+1: o que era idx=1 (agosto) agora é idx=0
-        // então g.valores[i] = g.valores_antigos[i + offset]
-        gastos.forEach(g=>{
-          const novosValores=Array(48).fill(0);
-          for(let i=0;i<48;i++){
-            const idxAntigo=i+offset;
-            if(idxAntigo>=0&&idxAntigo<48){
-              novosValores[i]=g.valores[idxAntigo]||0;
-            }
-          }
-          g.valores=novosValores;
-        });
-
-        // deslocar parcelas também
-        parcelas.forEach(p=>{
-          p.mesIdx=p.mesIdx-offset;
-        });
-
-        // deslocar lançamentos
-        lancamentos.forEach(l=>{
-          if(l.mes_idx!==null&&l.mes_idx!==undefined){
-            l.mes_idx=l.mes_idx-offset;
-          }
-        });
-      }
-    }
-
     cfg.mes_inicio=v;
     closeOv('ov-cfg');
-    renderTabela();
+    await carregarTudo();
+    renderTabela();renderSobraBanner();renderSobraBanner2();
     renderLancamentos();
     atualizarBadge();
-    toast('Mês atualizado! Recarregue a página para confirmar.');
+    toast('Mês atualizado!');
   }catch(e){toast('Erro: '+e.message,false);}
 }
 async function trocarSenha(){const atual=document.getElementById('cfg-s1').value,nova=document.getElementById('cfg-s2').value,conf=document.getElementById('cfg-s3').value,errEl=document.getElementById('cfg-serr');errEl.classList.remove('show');if(!atual||!nova){errEl.textContent='Preencha todos os campos';errEl.classList.add('show');return;}if(nova!==conf){errEl.textContent='As senhas não coincidem';errEl.classList.add('show');return;}if(nova.length<6){errEl.textContent='Mínimo 6 caracteres';errEl.classList.add('show');return;}try{await api('PUT','/senha',{senha_atual:atual,senha_nova:nova});['cfg-s1','cfg-s2','cfg-s3'].forEach(id=>document.getElementById(id).value='');toast('Senha alterada!');}catch(e){errEl.textContent=e.message;errEl.classList.add('show');}}
@@ -1520,14 +1494,14 @@ function openModalGasto(id=null){
   if(g)document.getElementById('g-cat').value=g.cat;
   document.getElementById('g-valor').value='';
   if(g){const idxs=g.valores.map((v,i)=>v>0?i:-1).filter(i=>i>=0);if(idxs.length){document.getElementById('g-inicio').value=idxParaStr(Math.min(...idxs));document.getElementById('g-fim').value=idxParaStr(Math.max(...idxs));}const vals=g.valores.filter(v=>v>0);if(vals.length)document.getElementById('g-valor').value=vals[0];}
-  else{document.getElementById('g-inicio').value=idxParaStr(Math.max(0,idxHoje()));document.getElementById('g-fim').value='';}
+  else{document.getElementById('g-inicio').value=idxParaStr(Math.max(0,idxTrabalho()));document.getElementById('g-fim').value='';}
   document.getElementById('g-preview').innerHTML='Preencha os campos...';
   openOv('ov-gasto');setTimeout(()=>document.getElementById('g-nome').focus(),80);
 }
 function previewGasto(){const v=parseFloat(document.getElementById('g-valor').value)||0,ini=document.getElementById('g-inicio').value,fim=document.getElementById('g-fim').value,el=document.getElementById('g-preview');if(!v||!ini||!fim){el.innerHTML='Preencha todos os campos...';return;}const idxIni=strParaIdx(ini),idxFim=strParaIdx(fim);if(idxFim<idxIni){el.innerHTML='<span style="color:var(--red)">Mês fim deve ser após o início!</span>';return;}el.innerHTML=`<span>${idxFim-idxIni+1} meses</span> × <span>${fmt(v)}</span> = <span>${fmt(v*(idxFim-idxIni+1))}</span><br>${mesLabel(idxIni,false)} → ${mesLabel(Math.min(idxFim,47),false)}`;}
 function openModalParcela(){
   ['p-nome','p-total','p-qtd'].forEach(id=>document.getElementById(id).value='');
-  document.getElementById('p-mes').value=idxParaStr(Math.max(0,idxHoje()));
+  document.getElementById('p-mes').value=idxParaStr(Math.max(0,idxTrabalho()));
   popularSelect('p-cat','gasto');
   document.getElementById('parc-preview').innerHTML='Preencha os campos...';
   // popular select de vínculo
@@ -1541,15 +1515,15 @@ function openModalParcela(){
 function previewParcela(){const total=parseFloat(document.getElementById('p-total').value)||0,qtd=parseInt(document.getElementById('p-qtd').value)||0,mes=document.getElementById('p-mes').value,el=document.getElementById('parc-preview');if(!total||!qtd||!mes){el.innerHTML='Preencha os campos...';return;}const vp=total/qtd,idx=strParaIdx(mes);if(idx>=MESES){el.innerHTML='<span style="color:var(--red)">Além de 48 meses!</span>';return;}const fim=Math.min(idx+qtd-1,MESES-1),fora=qtd-(fim-idx+1);el.innerHTML=`<span>${qtd}x</span> de <span>${fmt(vp)}</span> = <span>${fmt(total)}</span><br>${mesLabel(idx,false)} → ${mesLabel(fim,false)}`+(fora>0?`<br><span style="color:var(--amber)">⚠ ${fora} além</span>`:'');}
 function popularSelectMes(elId, idxSelecionado=null){
   const el=document.getElementById(elId);if(!el)return;
-  const ih=idxHoje();
+  const ih=idxTrabalho();
   const meses=[];
-  // mostra 3 meses passados + mês atual + 11 futuros
+  // mostra 3 meses passados + mês de trabalho + 11 futuros
   for(let i=Math.max(0,ih-3);i<Math.min(MESES,ih+12);i++){
     meses.push({idx:i,label:mesLabel(i,false),atual:i===ih});
   }
   el.innerHTML=meses.map(m=>
     `<option value="${m.idx}"${m.atual?' selected':''}>
-      ${m.label}${m.atual?' (mês atual)':''}
+      ${m.label}${m.atual?' (mês de trabalho)':''}
     </option>`
   ).join('');
   if(idxSelecionado!==null) el.value=idxSelecionado;
@@ -1570,7 +1544,7 @@ function openModalLanc(modoInicial='avulso'){
   popularSelectMes('ln-fixo-mes');
 
   // agora que o select de mês está populado, pegar o índice correto
-  const mesInicialIdx=parseInt(document.getElementById('ln-fixo-mes')?.value??idxHoje());
+  const mesInicialIdx=parseInt(document.getElementById('ln-fixo-mes')?.value??idxTrabalho());
 
   // popular select de gastos fixos com valor do mês correto
   const sel=document.getElementById('ln-fixo-id');
@@ -1603,7 +1577,7 @@ function selModoLanc(el){
   selModoLanc_btn(el.dataset.modo);
 }
 function atualizarSelectGastos(){
-  const _sgEl=document.getElementById('ln-fixo-mes');const mesIdx=(_sgEl&&_sgEl.value!=='')?parseInt(_sgEl.value):idxHoje();
+  const _sgEl=document.getElementById('ln-fixo-mes');const mesIdx=(_sgEl&&_sgEl.value!=='')?parseInt(_sgEl.value):idxTrabalho();
   const sel=document.getElementById('ln-fixo-id');
   if(!sel)return;
   const valAtual=sel.value;
@@ -1654,7 +1628,7 @@ function atualizarInfoFixo(){
   if(!g){if(card)card.style.display='none';if(prev)prev.style.display='none';return;}
   // usa o mês selecionado no select
   const mesSelEl=document.getElementById('ln-fixo-mes');
-  const mesIdxSel=(mesSelEl&&mesSelEl.value!==''&&mesSelEl.value!==null)?parseInt(mesSelEl.value):idxHoje();
+  const mesIdxSel=(mesSelEl&&mesSelEl.value!==''&&mesSelEl.value!==null)?parseInt(mesSelEl.value):idxTrabalho();
   console.log('[DEBUG] gasto:',g.nome,'mesIdx:',mesIdxSel,'valor:',g.valores[mesIdxSel],'todos valores:',g.valores.slice(0,6));
   const ci=catInfo(g.cat);
   // atualiza select de gastos para mostrar valor do mês correto
@@ -1701,7 +1675,7 @@ function previewAjuste(){
   if(!prev)return;
   if(!g||!delta){prev.style.display='none';return;}
   // usa o mês selecionado
-  const _mpEl=document.getElementById('ln-fixo-mes');const mesIdxSel=(_mpEl&&_mpEl.value!=='')?parseInt(_mpEl.value):idxHoje();
+  const _mpEl=document.getElementById('ln-fixo-mes');const mesIdxSel=(_mpEl&&_mpEl.value!=='')?parseInt(_mpEl.value):idxTrabalho();
   const vAtual=g.valores[mesIdxSel]||0;
   const op=window._lnOp||'subtrair';
   const novo=op==='subtrair'?Math.max(0,vAtual-delta):vAtual+delta;
@@ -1794,7 +1768,7 @@ async function addLanc(d,v,c,l,r){
   if(modo==='fixo'){
     const gid=parseInt(document.getElementById('ln-fixo-id').value)||0;
     const delta=parseFloat(document.getElementById('ln-fixo-valor').value)||0;
-    const _mfEl=document.getElementById('ln-fixo-mes');const mesIdx=(_mfEl&&_mfEl.value!=='')?parseInt(_mfEl.value):idxHoje();
+    const _mfEl=document.getElementById('ln-fixo-mes');const mesIdx=(_mfEl&&_mfEl.value!=='')?parseInt(_mfEl.value):idxTrabalho();
     const motivo=document.getElementById('ln-fixo-motivo')?.value.trim()||'';
     if(!gid){toast('Selecione um gasto fixo','err');return;}
     if(!delta){toast('Informe o valor','err');return;}
@@ -1830,7 +1804,7 @@ async function addLanc(d,v,c,l,r){
   const local=l||document.getElementById('ln-local').value.trim();
   const rec=r||recSel;
   const motivo=document.getElementById('ln-motivo')?.value.trim()||'';
-  const _maEl=document.getElementById('ln-mes');const mesIdx=(_maEl&&_maEl.value!=='')?parseInt(_maEl.value):idxHoje();
+  const _maEl=document.getElementById('ln-mes');const mesIdx=(_maEl&&_maEl.value!=='')?parseInt(_maEl.value):idxTrabalho();
   if(!desc||!valor){toast('Preencha descrição e valor','err');return;}
   try{
     const res=await api('POST','/lancamentos',{descricao:desc,valor,cat,local,recorrencia:rec,motivo,mes_idx:mesIdx});
@@ -1888,17 +1862,17 @@ let valTimers={};
 function renderTabela(){
   const wrap=document.getElementById('table-wrap');atualizarBadge();
   if(!gastos.length&&!parcelas.length){wrap.innerHTML='<div style="padding:2rem;text-align:center;color:var(--hint);font-size:13px">Nenhum gasto cadastrado.</div>';return;}
-  const ini=Math.max(0,idxHoje()),n=MESES-ini;
+  const ini=Math.max(0,idxTrabalho()),n=MESES-ini,it=idxTrabalho();
   if(n<=0){wrap.innerHTML='<div style="padding:2rem;text-align:center;color:var(--hint)">Todos os meses estão no Histórico.</div>';return;}
-  let th='';for(let i=ini;i<MESES;i++)th+=`<th class="mes-head${i===idxHoje()?' mes-hoje':''}">${mesLabel(i)}${i===idxHoje()?' ●':''}</th>`;
+  let th='';for(let i=ini;i<MESES;i++)th+=`<th class="mes-head${i===it?' mes-hoje':''}">${mesLabel(i)}${i===it?' ●':''}</th>`;
   let rg='';
-  gastos.forEach(g=>{const ci=catInfo(g.cat);let cells='';for(let i=ini;i<MESES;i++){const v=g.valores[i]||0,h=i===idxHoje();const vr=v?round2(v):0;const corKey=`${g.id}_${i}`;const corCelula=coresCelulas[corKey]||'';cells+=`<td class="val-cell${h?' hoje-col':''}" style="${corCelula?'background:'+corCelula:''}" oncontextmenu="abrirColorPicker(event,${g.id},${i})" title="Clique direito para mudar a cor"><input class="val ${vr?'has-val':'zero'}" type="number" step="0.01" min="0" data-id="${g.id}" data-i="${i}" value="${vr||''}" placeholder="—" oninput="onValInput(this)"></td>`;}
+  gastos.forEach(g=>{const ci=catInfo(g.cat);let cells='';for(let i=ini;i<MESES;i++){const v=g.valores[i]||0,h=i===it;const vr=v?round2(v):0;const corKey=`${g.id}_${i}`;const corCelula=coresCelulas[corKey]||'';cells+=`<td class="val-cell${h?' hoje-col':''}" style="${corCelula?'background:'+corCelula:''}" oncontextmenu="abrirColorPicker(event,${g.id},${i})" title="Clique direito para mudar a cor"><input class="val ${vr?'has-val':'zero'}" type="number" step="0.01" min="0" data-id="${g.id}" data-i="${i}" value="${vr||''}" placeholder="—" oninput="onValInput(this)"></td>`;}
     rg+=`<tr class="gasto-row fade-in" style="animation-delay:${gastos.indexOf(g)*0.04}s"><td class="nome-cell"><span class="cat-bar" style="background:${ci.cor}"></span><div class="nome-inner"><span class="cat-dot" style="background:${ci.cor}"></span><span class="nome-txt" title="${g.nome}">${g.nome}</span><button class="btn btn-ghost" onclick="openModalGasto(${g.id})" style="padding:2px 5px;font-size:10px">✎</button><button class="btn btn-danger" onclick="delGasto(${g.id})">✕</button></div></td>${cells}</tr>`;
   });
   let sp='',rp='';
   if(parcelas.length){
     sp=`<tr><th class="nome-cell" style="font-size:10px;color:var(--purple);padding:3px 8px;border-top:1px solid rgba(167,139,250,.2);background:var(--surface);position:sticky;top:29px;z-index:6;left:0">Parcelados</th>${Array(n).fill('<th style="border-top:1px solid rgba(167,139,250,.15);background:var(--surface)"></th>').join('')}</tr>`;
-    parcelas.forEach(p=>{const ci=catInfo(p.cat);let cells='';for(let i=ini;i<MESES;i++){const k=i-p.mesIdx,a=k>=0&&k<p.qtd,h=i===idxHoje();if(a)cells+=`<td class="parc-cell${h?' hoje-col':''}">${fmt(p.valorParcela)}<br><span style="font-size:9px;color:var(--hint)">${k+1}/${p.qtd}</span></td>`;else cells+=`<td class="parc-cell empty${h?' hoje-col':''}">—</td>`;}
+    parcelas.forEach(p=>{const ci=catInfo(p.cat);let cells='';for(let i=ini;i<MESES;i++){const k=i-p.mesIdx,a=k>=0&&k<p.qtd,h=i===it;if(a)cells+=`<td class="parc-cell${h?' hoje-col':''}">${fmt(p.valorParcela)}<br><span style="font-size:9px;color:var(--hint)">${k+1}/${p.qtd}</span></td>`;else cells+=`<td class="parc-cell empty${h?' hoje-col':''}">—</td>`;}
       rp+=`<tr class="gasto-row parcelado-row"><td class="nome-cell"><span class="cat-bar" style="background:${ci.cor}88"></span><div class="nome-inner"><span class="cat-dot" style="background:${ci.cor}"></span><div style="flex:1;overflow:hidden"><div class="nome-txt">${p.nome}</div><div class="nome-sub">${p.qtd}x·${fmt(p.valorParcela)}</div></div><button class="btn btn-danger" onclick="delParcela(${p.id})">✕</button></div></td>${cells}</tr>`;
     });
   }
@@ -1926,7 +1900,7 @@ function getLancsMes(idx){
   });
 }
 function renderTotais(){
-  const sal=cfg.salario||0,parc=calcParcelasIdx(),lancIdx=calcLancIdx(),ini=Math.max(0,idxHoje());
+  const sal=cfg.salario||0,parc=calcParcelasIdx(),lancIdx=calcLancIdx(),ini=Math.max(0,idxTrabalho());
   for(let i=ini;i<MESES;i++){
     const f=round2(gastos.reduce((s,g)=>s+(g.valores[i]||0),0)),pm=round2(parc[i]||0),lm=round2(lancIdx[i]||0),tot=round2(f+pm+lm),sob=round2(sal-tot);
     const t=document.getElementById('tot-'+i),s=document.getElementById('sob-'+i),l=document.getElementById('lanc-'+i);
@@ -1993,20 +1967,69 @@ function renderComparativo(){
   }).join('');
 }
 
-function renderHistorico(){
-  const wrap=document.getElementById('hist-wrap'),q=Math.max(0,idxHoje());if(q<=0){wrap.innerHTML='<div class="hist-empty">Nenhum mês no histórico ainda.</div>';return;}
-  const sal=cfg.salario||0,parc=calcParcelasIdx(),lancIdx=calcLancIdx(),mesesH=[];
-  for(let i=0;i<q;i++){const f=round2(gastos.reduce((s,g)=>s+(g.valores[i]||0),0)),pm=round2(parc[i]||0),lm=round2(lancIdx[i]||0),tot=round2(f+pm+lm),sob=round2(sal-tot);mesesH.push({label:mesLabel(i,false),fixos:f,parcM:pm,lancM:lm,tot,sob,sal});}
-  const cards=mesesH.map((m,mi)=>`<div class="hist-card fade-in" style="animation-delay:${mi*0.05}s;border-top:3px solid ${m.sob>=0?'var(--green)':'var(--red)'}"><div class="hc-mes">${m.label}</div><div class="hc-sobra ${m.sob>=0?'pos':'neg'}">${fmt(m.sob)}</div><div class="hc-detail">Total: ${fmt(m.tot)}</div></div>`).join('');
-  const linhas=mesesH.map(m=>`<tr><td>${m.label}</td><td class="neu">${fmt(m.sal)}</td><td class="neg">${fmt(m.fixos)}</td><td class="pur">${m.parcM>0?fmt(m.parcM):'—'}</td><td class="o">${m.lancM>0?fmt(m.lancM):'—'}</td><td class="neg">${fmt(m.tot)}</td><td class="${m.sob>=0?'pos':'neg'}">${fmt(m.sob)}</td></tr>`).join('');
-  wrap.innerHTML=`<div class="section"><div class="sec-title">Meses passados <span class="sec-badge">${q}</span></div><div class="hist-cards">${cards}</div></div>
+async function renderHistorico(){
+  const wrap=document.getElementById('hist-wrap');
+  try{ historicoFechados=await api('GET','/historico').catch(()=>historicoFechados||[]); }catch(e){}
+  const it=Math.min(Math.max(0,idxTrabalho()),MESES);
+  const porRef={}; (historicoFechados||[]).forEach(h=>{porRef[h.mes_ref]=h;});
+  const sal=cfg.salario||0,parc=calcParcelasIdx(),lancIdx=calcLancIdx();
+  const mesesH=[];
+  for(let i=0;i<it;i++){
+    const mesRef=idxParaStr(i);
+    if(!mesRef) continue;
+    const f=porRef[mesRef];
+    if(f){
+      mesesH.push({idx:i,mesRef,label:mesLabel(i,false),fixos:round2(f.fixos),parcM:round2(f.parcelas),lancM:round2(f.lancamentos),tot:round2(f.total),sob:round2(f.sobra),sal:round2(f.salario),fechado:true,fid:f.id});
+    } else {
+      const fx=round2(gastos.reduce((s,g)=>s+(g.valores[i]||0),0)),pm=round2(parc[i]||0),lm=round2(lancIdx[i]||0),tot=round2(fx+pm+lm),sob=round2(sal-tot);
+      mesesH.push({idx:i,mesRef,label:mesLabel(i,false),fixos:fx,parcM:pm,lancM:lm,tot,sob,sal,fechado:false});
+    }
+  }
+  // Snapshots com mes_ref fora do intervalo atual (ex: mes_inicio antigo) também aparecem
+  (historicoFechados||[]).forEach(f=>{
+    if(!mesesH.find(m=>m.mesRef===f.mes_ref)){
+      mesesH.push({idx:f.mes_idx,mesRef:f.mes_ref,label:mesRefParaLabel(f.mes_ref),fixos:round2(f.fixos),parcM:round2(f.parcelas),lancM:round2(f.lancamentos),tot:round2(f.total),sob:round2(f.sobra),sal:round2(f.salario),fechado:true,fid:f.id,fora:true});
+    }
+  });
+  mesesH.sort((a,b)=>a.mesRef.localeCompare(b.mesRef));
+  if(!mesesH.length){wrap.innerHTML='<div class="hist-empty">Nenhum mês no histórico ainda.<br>Pague as contas e clique em “Fechar mês” para congelá-lo aqui.</div>';return;}
+  const mesTrab=it<MESES?mesLabel(it,false):'—';
+  const cards=mesesH.map((m,mi)=>`<div class="hist-card fade-in" style="animation-delay:${mi*0.05}s;border-top:3px solid ${m.sob>=0?'var(--green)':'var(--red)'}"><div class="hc-mes">${m.label} ${m.fechado?'<span style="font-size:9px;background:var(--green-bg);color:var(--green);border-radius:4px;padding:1px 5px;margin-left:4px">fechado 🔒</span>':'<span style="font-size:9px;background:var(--amber-bg);color:var(--amber);border-radius:4px;padding:1px 5px;margin-left:4px">aberto</span>'}</div><div class="hc-sobra ${m.sob>=0?'pos':'neg'}">${fmt(m.sob)}</div><div class="hc-detail">Total: ${fmt(m.tot)}</div><div style="margin-top:6px">${m.fechado?`<button class="btn btn-ghost" style="font-size:10px;padding:3px 8px" onclick="reabrirMes(${m.fid})">↩ Reabrir</button>`:`<button class="btn btn-primary" style="font-size:10px;padding:3px 8px" onclick="fecharMes(${m.idx},'${m.mesRef}')">🔒 Fechar mês</button>`}</div></div>`).join('');
+  const linhas=mesesH.map(m=>`<tr><td>${m.label}${m.fechado?' 🔒':''}</td><td class="neu">${fmt(m.sal)}</td><td class="neg">${fmt(m.fixos)}</td><td class="pur">${m.parcM>0?fmt(m.parcM):'—'}</td><td class="o">${m.lancM>0?fmt(m.lancM):'—'}</td><td class="neg">${fmt(m.tot)}</td><td class="${m.sob>=0?'pos':'neg'}">${fmt(m.sob)}</td><td>${m.fechado?`<button class="btn btn-ghost" style="font-size:10px;padding:2px 7px" onclick="reabrirMes(${m.fid})">Reabrir</button>`:`<button class="btn btn-primary" style="font-size:10px;padding:2px 7px" onclick="fecharMes(${m.idx},'${m.mesRef}')">Fechar</button>`}</td></tr>`).join('');
+  wrap.innerHTML=`<div class="section"><div class="sec-title">Mês de trabalho: ${mesTrab} <span class="sec-badge">${mesesH.length} no histórico</span></div><div style="font-size:12px;color:var(--muted);margin-bottom:.9rem">Feche um mês para congelar os valores — ele sai da tela principal e fica guardado aqui. Meses “abertos” ainda refletem edições atuais.</div><div class="hist-cards">${cards}</div></div>
     <div class="section"><div class="sec-title">Gastos × Sobra</div><canvas id="hist-chart"></canvas></div>
-    <div class="section"><div class="sec-title">Detalhamento</div><div style="overflow-x:auto"><table class="hist-table"><thead><tr><th>Mês</th><th>Salário</th><th>Fixos</th><th>Parcelas</th><th>Lançamentos</th><th>Total</th><th>Sobra</th></tr></thead><tbody>${linhas}</tbody></table></div></div>`;
+    <div class="section"><div class="sec-title">Detalhamento</div><div style="overflow-x:auto"><table class="hist-table"><thead><tr><th>Mês</th><th>Salário</th><th>Fixos</th><th>Parcelas</th><th>Lançamentos</th><th>Total</th><th>Sobra</th><th></th></tr></thead><tbody>${linhas}</tbody></table></div></div>`;
   requestAnimationFrame(()=>{const c=document.getElementById('hist-chart');if(c)drawBar(c,mesesH);});
 }
 
+async function fecharMes(idx, mesRef){
+  if(!confirm(`Fechar ${mesRefParaLabel(mesRef)}? Os valores serão congelados no histórico.`))return;
+  try{
+    const sal=cfg.salario||0,parc=calcParcelasIdx(),lancIdx=calcLancIdx();
+    const fx=round2(gastos.reduce((s,g)=>s+(g.valores[idx]||0),0));
+    const pm=round2(parc[idx]||0),lm=round2(lancIdx[idx]||0);
+    const tot=round2(fx+pm+lm),sob=round2(sal-tot);
+    // detalhamento simples por gasto (para auditoria futura)
+    const det=gastos.filter(g=>(g.valores[idx]||0)!==0).map(g=>({nome:g.nome,cat:g.cat,valor:round2(g.valores[idx])}));
+    await api('POST','/historico/fechar',{mes_idx:idx,mes_ref:mesRef,salario:sal,fixos:fx,parcelas:pm,lancamentos:lm,total:tot,sobra:sob,detalhes:JSON.stringify(det).slice(0,4000)});
+    historicoFechados=await api('GET','/historico').catch(()=>historicoFechados);
+    renderHistorico();atualizarBadge();
+    toast(`Mês ${mesRef} fechado! 🔒`);
+  }catch(e){toast('Erro ao fechar: '+e.message,false);}
+}
+
+async function reabrirMes(fid){
+  if(!confirm('Reabrir este mês? Ele volta a refletir os valores atuais (sai do congelado).'))return;
+  try{
+    await api('DELETE',`/historico/${fid}`);
+    historicoFechados=await api('GET','/historico').catch(()=>[]);
+    renderHistorico();atualizarBadge();
+    toast('Mês reaberto');
+  }catch(e){toast('Erro: '+e.message,false);}
+}
+
 function calcResumo(){
-  const sal=cfg.salario||0,parc=calcParcelasIdx(),lancIdx=calcLancIdx(),ini=Math.max(0,idxHoje());
+  const sal=cfg.salario||0,parc=calcParcelasIdx(),lancIdx=calcLancIdx(),ini=Math.max(0,idxTrabalho());
   let acum=0;
   return Array.from({length:MESES-ini},(_,j)=>{
     const i=ini+j;
@@ -2668,9 +2691,9 @@ function openModalRelatorio(){
   const selG = document.getElementById('rel-gasto');
   selG.innerHTML = '<option value="">— Selecione —</option>' +
     gastos.map(g=>`<option value="${g.id}">${g.nome}</option>`).join('');
-  // popular select de meses (atual + passados)
+  // popular select de meses (mês de trabalho + passados)
   const selM = document.getElementById('rel-mes');
-  const ih = idxHoje();
+  const ih = idxTrabalho();
   const meses = [];
   for(let i = Math.max(0, ih-11); i <= ih; i++){
     meses.push({idx: i, label: mesLabel(i, false)});
