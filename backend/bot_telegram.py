@@ -243,7 +243,9 @@ def calc_totais_mes(user, idx):
         if 0 <= k < p["qtd"]:
             total_parc += float(p["valor_parcela"])
 
-    cur.execute("SELECT descricao, valor FROM lancamentos WHERE user_id=%s AND mes_idx=%s AND tipo_ajuste IS NULL", (user["id"], idx))
+    # Lançamentos NÃO somam no total (só informam — o valor já está no fixo).
+    # Total = fixos + parcelas. A lista abaixo serve só p/ conferência.
+    cur.execute("SELECT descricao, valor FROM lancamentos WHERE user_id=%s AND mes_idx=%s", (user["id"], idx))
     total_lanc = 0.0
     detalhes_lanc = []
     for l in cur.fetchall():
@@ -251,7 +253,7 @@ def calc_totais_mes(user, idx):
         detalhes_lanc.append((l["descricao"], float(l["valor"])))
 
     cur.close(); db.close()
-    total = round(total_fixos + total_parc + total_lanc, 2)
+    total = round(total_fixos + total_parc, 2)
     sobra = round(sal - total, 2)
     return {
         "sal": sal, "fixos": round(total_fixos,2), "parcelas": round(total_parc,2),

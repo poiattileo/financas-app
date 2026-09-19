@@ -1305,20 +1305,14 @@ function calcParcelasIdx(){
   });
   return arr;
 }
-function isAjuste(l){
-  // Ajuste de gasto fixo = só auditoria (o efeito já está no valor do fixo).
-  // Não entra nos totais. Fallback pelo prefixo cobre registros legados.
-  if(!l) return false;
-  if(l.tipo_ajuste==='subtrair'||l.tipo_ajuste==='somar') return true;
-  return /^(desconto|acr[eé]scimo)\s*:/i.test(l.descricao||'');
-}
-function calcLancIdx(){
+// Soma de TODOS os lançamentos do mês (inclui ajustes e parcelas-lançamento).
+// Uso só p/ exibição: a linha ⚡ é informativa e não entra no total.
+function calcLancIdxTudo(){
   const arr=Array(MESES).fill(0);
   lancamentos.forEach(l=>{
-    if(isAjuste(l)) return; // ajuste de fixo: não soma no total
     let idx;
     if(l.mes_idx!==undefined&&l.mes_idx!==null){
-      idx=l.mes_idx; // usa o mês selecionado pelo usuário
+      idx=l.mes_idx;
     } else {
       const d=new Date(l.criado_em),ms=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
       idx=strParaIdx(ms);
@@ -1405,11 +1399,13 @@ function onSalBlur(){setTimeout(()=>{if(!document.getElementById('sal-edit').con
 function fecharSalario(){document.getElementById('sal-edit').classList.remove('open');document.getElementById('sal-display').style.display='';}
 
 // ── SOBRA ──
+// Regra: lançamentos NÃO somam no total (só informam — o valor já está no fixo).
+// Total = fixos + parcelas. lm segue calculado só p/ exibição.
 function calcSobraHoje(){
-  const ih=idxTrabalho(),sal=cfg.salario||0,parc=calcParcelasIdx(),lancIdx=calcLancIdx();
+  const ih=idxTrabalho(),sal=cfg.salario||0,parc=calcParcelasIdx(),lancIdx=calcLancIdxTudo();
   const fixos=round2(gastos.reduce((s,g)=>s+(g.valores[ih]||0),0));
   const pm=round2(parc[ih]||0),lm=round2(lancIdx[ih]||0);
-  const tot=round2(fixos+pm+lm);
+  const tot=round2(fixos+pm);
   return{sal,fixos,pm,lm,tot,sobra:round2(sal-tot)};
 }
 function animarNumero(el, valorFinal, prefixo='R$ '){
@@ -1908,9 +1904,9 @@ function getLancsMes(idx){
   });
 }
 function renderTotais(){
-  const sal=cfg.salario||0,parc=calcParcelasIdx(),lancIdx=calcLancIdx(),ini=Math.max(0,idxTrabalho());
+  const sal=cfg.salario||0,parc=calcParcelasIdx(),lancIdx=calcLancIdxTudo(),ini=Math.max(0,idxTrabalho());
   for(let i=ini;i<MESES;i++){
-    const f=round2(gastos.reduce((s,g)=>s+(g.valores[i]||0),0)),pm=round2(parc[i]||0),lm=round2(lancIdx[i]||0),tot=round2(f+pm+lm),sob=round2(sal-tot);
+    const f=round2(gastos.reduce((s,g)=>s+(g.valores[i]||0),0)),pm=round2(parc[i]||0),lm=round2(lancIdx[i]||0),tot=round2(f+pm),sob=round2(sal-tot);
     const t=document.getElementById('tot-'+i),s=document.getElementById('sob-'+i),l=document.getElementById('lanc-'+i);
     if(t)t.textContent=fmt(tot);
     if(s){s.textContent=fmt(sob);s.className=sob>=0?'':'neg';}
@@ -1980,7 +1976,7 @@ async function renderHistorico(){
   try{ historicoFechados=await api('GET','/historico').catch(()=>historicoFechados||[]); }catch(e){}
   const it=Math.min(Math.max(0,idxTrabalho()),MESES);
   const porRef={}; (historicoFechados||[]).forEach(h=>{porRef[h.mes_ref]=h;});
-  const sal=cfg.salario||0,parc=calcParcelasIdx(),lancIdx=calcLancIdx();
+  const sal=cfg.salario||0,parc=calcParcelasIdx(),lancIdx=calcLancIdxTudo();
   const mesesH=[];
   for(let i=0;i<it;i++){
     const mesRef=idxParaStr(i);
@@ -1989,7 +1985,7 @@ async function renderHistorico(){
     if(f){
       mesesH.push({idx:i,mesRef,label:mesLabel(i,false),fixos:round2(f.fixos),parcM:round2(f.parcelas),lancM:round2(f.lancamentos),tot:round2(f.total),sob:round2(f.sobra),sal:round2(f.salario),fechado:true,fid:f.id});
     } else {
-      const fx=round2(gastos.reduce((s,g)=>s+(g.valores[i]||0),0)),pm=round2(parc[i]||0),lm=round2(lancIdx[i]||0),tot=round2(fx+pm+lm),sob=round2(sal-tot);
+      const fx=round2(gastos.reduce((s,g)=>s+(g.valores[i]||0),0)),pm=round2(parc[i]||0),lm=round2(lancIdx[i]||0),tot=round2(fx+pm),sob=round2(sal-tot);
       mesesH.push({idx:i,mesRef,label:mesLabel(i,false),fixos:fx,parcM:pm,lancM:lm,tot,sob,sal,fechado:false});
     }
   }
@@ -2013,10 +2009,10 @@ async function renderHistorico(){
 async function fecharMes(idx, mesRef){
   if(!confirm(`Fechar ${mesRefParaLabel(mesRef)}? Os valores serão congelados no histórico.`))return;
   try{
-    const sal=cfg.salario||0,parc=calcParcelasIdx(),lancIdx=calcLancIdx();
+    const sal=cfg.salario||0,parc=calcParcelasIdx(),lancIdx=calcLancIdxTudo();
     const fx=round2(gastos.reduce((s,g)=>s+(g.valores[idx]||0),0));
     const pm=round2(parc[idx]||0),lm=round2(lancIdx[idx]||0);
-    const tot=round2(fx+pm+lm),sob=round2(sal-tot);
+    const tot=round2(fx+pm),sob=round2(sal-tot);
     // detalhamento simples por gasto (para auditoria futura)
     const det=gastos.filter(g=>(g.valores[idx]||0)!==0).map(g=>({nome:g.nome,cat:g.cat,valor:round2(g.valores[idx])}));
     await api('POST','/historico/fechar',{mes_idx:idx,mes_ref:mesRef,salario:sal,fixos:fx,parcelas:pm,lancamentos:lm,total:tot,sobra:sob,detalhes:JSON.stringify(det).slice(0,4000)});
@@ -2037,13 +2033,13 @@ async function reabrirMes(fid){
 }
 
 function calcResumo(){
-  const sal=cfg.salario||0,parc=calcParcelasIdx(),lancIdx=calcLancIdx(),ini=Math.max(0,idxTrabalho());
+  const sal=cfg.salario||0,parc=calcParcelasIdx(),lancIdx=calcLancIdxTudo(),ini=Math.max(0,idxTrabalho());
   let acum=0;
   return Array.from({length:MESES-ini},(_,j)=>{
     const i=ini+j;
     const f=round2(gastos.reduce((s,g)=>s+(g.valores[i]||0),0));
     const pm=round2(parc[i]||0),lm=round2(lancIdx[i]||0);
-    const tot=round2(f+pm+lm),sob=round2(sal-tot);
+    const tot=round2(f+pm),sob=round2(sal-tot);
     acum=round2(acum+Math.max(0,sob));
     return{label:mesLabel(i),full:mesLabel(i,false),sal,fixos:f,parcM:pm,lancM:lm,tot,sob,acum};
   });
