@@ -444,8 +444,6 @@ def gerar_relatorio_whatsapp(user, gasto_id, idx):
     valor_base = round(float(row["valor"]) if row else 0.0, 2)
     cur.execute("SELECT descricao, valor, tipo_ajuste, motivo, local_nome, criado_em, mes_idx FROM lancamentos WHERE user_id=%s", (user["id"],))
     todos = cur.fetchall()
-    cur.execute("SELECT nome, label, emoji FROM categorias")
-    cats = {c["nome"]: c for c in cur.fetchall()}
     cur.close(); db.close()
 
     nome_norm = normalizar(g["nome"])
@@ -471,43 +469,26 @@ def gerar_relatorio_whatsapp(user, gasto_id, idx):
             total_ajustes += float(l["valor"])
     valor_original = round(valor_base - total_ajustes, 2)
 
-    ci = cats.get(g["cat"], {"label": g["cat"], "emoji": "💳"})
     mes_nome = nome_mes_longo(mes_inicio, idx)
     fbr = lambda v: f"{v:.2f}".replace(".", ",")
+    # texto curto, pronto p/ copiar e colar no WhatsApp
     linhas = []
-    linhas.append("💰 *Relatório Financeiro*")
-    linhas.append(f"📅 {mes_nome}")
-    linhas.append("─────────────────")
-    linhas.append(f"{ci.get('emoji', '💳')} *{limpar_md(g['nome'])}*")
-    linhas.append(f"📂 Categoria: {limpar_md(ci.get('label', g['cat']))}")
-    linhas.append("")
-    linhas.append(f"💵 Valor base: *R$ {fbr(valor_original)}*")
+    linhas.append(f"*{limpar_md(g['nome'])} — {mes_nome}*")
     if lancs:
-        linhas.append("")
-        linhas.append("📝 *Lançamentos no mês:*")
+        linhas.append(f"Base: R$ {fbr(valor_original)}")
         for l in lancs:
             d = l["criado_em"]
             dia = f"{d.day:02d}/{d.month:02d}"
             sub = l.get("tipo_ajuste") == "subtrair"
             som = l.get("tipo_ajuste") == "somar"
             sinal = "➖" if sub else ("➕" if som else "•")
-            linha = f"{sinal} {dia} — {limpar_md(l['descricao'])} (R$ {fbr(float(l['valor']))})"
+            linha = f"{sinal} {dia} {limpar_md(l['descricao'])} (R$ {fbr(float(l['valor']))})"
             if l.get("motivo"):
-                linha += f"\n   💬 _{limpar_md(l['motivo'])}_"
-            if l.get("local_nome"):
-                linha += f"\n   📍 {limpar_md(l['local_nome'])}"
+                linha += f" — {limpar_md(l['motivo'])}"
             linhas.append(linha)
-        linhas.append("")
-        linhas.append("─────────────────")
-        if total_ajustes < 0:
-            linhas.append(f"💸 Total descontos: *- R$ {fbr(abs(total_ajustes))}*")
-        elif total_ajustes > 0:
-            linhas.append(f"📈 Total acréscimos: *+ R$ {fbr(total_ajustes)}*")
-        linhas.append(f"✅ *Valor final a pagar: R$ {fbr(valor_base)}*")
+        linhas.append(f"*Final: R$ {fbr(valor_base)}*")
     else:
-        linhas.append("")
-        linhas.append(f"✅ *Valor a pagar: R$ {fbr(valor_base)}*")
-        linhas.append("_(sem lançamentos adicionais)_")
+        linhas.append(f"*Valor: R$ {fbr(valor_base)}*")
     return "\n".join(linhas)
 
 def processar_parcelado(user, linhas):

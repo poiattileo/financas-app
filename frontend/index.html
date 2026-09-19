@@ -2766,7 +2766,6 @@ function gerarRelatorio(){
   const g = gastos.find(x => x.id === gid);
   if(!g) return;
   const idx = parseInt(mesIdx);
-  const ci = catInfo(g.cat);
   const valorBase = round2(g.valores[idx] || 0);
   const mesNome = mesLabel(idx, false);
 
@@ -2791,48 +2790,25 @@ function gerarRelatorio(){
   const valorOriginal = round2(valorBase - totalAjustes);
   const valorFinal = valorBase;
 
-  // montar texto
+  // texto curto, pronto p/ copiar e colar no WhatsApp
   const linhas = [];
-  linhas.push(`💰 *Relatório Financeiro*`);
-  linhas.push(`📅 ${mesNome}`);
-  linhas.push(`─────────────────`);
-  linhas.push(`${ci.emoji} *${g.nome}*`);
-  linhas.push(`📂 Categoria: ${ci.label}`);
-  linhas.push(``);
-  linhas.push(`💵 Valor base: *R$ ${valorOriginal.toFixed(2).replace('.',',')}*`);
-
+  linhas.push(`*${g.nome} — ${mesNome}*`);
   if(lancs.length > 0){
-    linhas.push(``);
-    linhas.push(`📝 *Lançamentos no mês:*`);
+    linhas.push(`Base: R$ ${valorOriginal.toFixed(2).replace('.',',')}`);
     lancs.forEach(l => {
       const d = new Date(l.criado_em);
       const dia = d.toLocaleDateString('pt-BR', {day:'2-digit', month:'2-digit'});
       const isSub = l.tipo_ajuste==='subtrair' || (!l.tipo_ajuste && /^desconto\s*:/i.test(l.descricao||''));
       const isAdd = l.tipo_ajuste==='somar' || (!l.tipo_ajuste && /^acr[eé]scimo\s*:/i.test(l.descricao||''));
       const sinal = isSub ? '➖' : isAdd ? '➕' : '•';
-      const valStr = `R$ ${l.valor.toFixed(2).replace('.',',')}`;
-      let linha = `${sinal} ${dia} — ${l.descricao} (${valStr})`;
-      if(l.motivo) linha += `
-   💬 _${l.motivo}_`;
-      if(l.local_nome) linha += `
-   📍 ${l.local_nome}`;
+      let linha = `${sinal} ${dia} ${l.descricao} (R$ ${l.valor.toFixed(2).replace('.',',')})`;
+      if(l.motivo) linha += ` — ${l.motivo}`;
       linhas.push(linha);
     });
-    linhas.push(``);
-    linhas.push(`─────────────────`);
-    if(totalAjustes < 0){
-      linhas.push(`💸 Total descontos: *- R$ ${Math.abs(totalAjustes).toFixed(2).replace('.',',')}*`);
-    } else if(totalAjustes > 0){
-      linhas.push(`📈 Total acréscimos: *+ R$ ${totalAjustes.toFixed(2).replace('.',',')}*`);
-    }
-    linhas.push(`✅ *Valor final a pagar: R$ ${valorFinal.toFixed(2).replace('.',',')}*`);
+    linhas.push(`*Final: R$ ${valorFinal.toFixed(2).replace('.',',')}*`);
   } else {
-    linhas.push(``);
-    linhas.push(`✅ *Valor a pagar: R$ ${valorFinal.toFixed(2).replace('.',',')}*`);
-    linhas.push(`_(sem lançamentos adicionais)_`);
+    linhas.push(`*Valor: R$ ${valorFinal.toFixed(2).replace('.',',')}*`);
   }
-  linhas.push(``);
-  linhas.push(`_Gerado em ${new Date().toLocaleString('pt-BR')}_`);
 
   relatorioTexto = linhas.join('\n');
 
