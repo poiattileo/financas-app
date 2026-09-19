@@ -86,6 +86,16 @@ ALTER TABLE gasto_valores MODIFY COLUMN idx INT NOT NULL;
 ALTER TABLE parcelas MODIFY COLUMN mes_idx INT NOT NULL;
 ALTER TABLE lancamentos MODIFY COLUMN mes_idx INT DEFAULT NULL;
 
+-- Marca ajustes de gasto fixo (só auditoria: o efeito já está no valor do fixo,
+-- então não entram nos totais de lançamentos)
+ALTER TABLE lancamentos ADD COLUMN IF NOT EXISTS tipo_ajuste VARCHAR(20) DEFAULT NULL;
+
+-- Backfill: ajustes antigos criados como "Desconto: X" / "Acréscimo: X"
+UPDATE lancamentos SET tipo_ajuste='subtrair'
+  WHERE tipo_ajuste IS NULL AND descricao LIKE 'Desconto:%';
+UPDATE lancamentos SET tipo_ajuste='somar'
+  WHERE tipo_ajuste IS NULL AND (descricao LIKE 'Acréscimo:%' OR descricao LIKE 'Acrescimo:%');
+
 -- Histórico com snapshot congelado (mês fechado sai da tela principal)
 CREATE TABLE IF NOT EXISTS historico_meses (
     id          INT AUTO_INCREMENT PRIMARY KEY,

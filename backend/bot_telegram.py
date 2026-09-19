@@ -188,10 +188,11 @@ def processar_lancamento(user, linhas):
             cur.execute("DELETE FROM gasto_valores WHERE gasto_id=%s AND idx=%s", (gasto_match["id"], idx))
 
         op = "Desconto" if valor < 0 else "Acréscimo"
+        tipo_aj = "subtrair" if valor < 0 else "somar"
         motivo_final = motivo_raw if motivo_raw else "via Telegram"
         cur.execute(
-            "INSERT INTO lancamentos (user_id,descricao,valor,cat,local_nome,recorrencia,motivo,mes_idx) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
-            (user["id"], f"{op}: {gasto_match['nome']}", abs(valor), gasto_match["cat"], "", "nunca", motivo_final, idx)
+            "INSERT INTO lancamentos (user_id,descricao,valor,cat,local_nome,recorrencia,motivo,mes_idx,tipo_ajuste) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+            (user["id"], f"{op}: {gasto_match['nome']}", abs(valor), gasto_match["cat"], "", "nunca", motivo_final, idx, tipo_aj)
         )
         cur.close(); db.close()
 
@@ -242,7 +243,7 @@ def calc_totais_mes(user, idx):
         if 0 <= k < p["qtd"]:
             total_parc += float(p["valor_parcela"])
 
-    cur.execute("SELECT descricao, valor FROM lancamentos WHERE user_id=%s AND mes_idx=%s", (user["id"], idx))
+    cur.execute("SELECT descricao, valor FROM lancamentos WHERE user_id=%s AND mes_idx=%s AND tipo_ajuste IS NULL", (user["id"], idx))
     total_lanc = 0.0
     detalhes_lanc = []
     for l in cur.fetchall():

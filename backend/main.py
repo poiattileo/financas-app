@@ -97,6 +97,7 @@ class LancamentoInput(BaseModel):
     recorrencia: Optional[str] = "nunca"
     motivo: Optional[str] = ""
     mes_idx: Optional[int] = None
+    tipo_ajuste: Optional[str] = None  # "subtrair" | "somar" | None (ajuste de fixo: só auditoria, não entra no total)
 
 class MetaInput(BaseModel):
     nome: str
@@ -324,15 +325,16 @@ def listar_lancamentos(user=Depends(verificar_token)):
         r["criado_em"]=r["criado_em"].isoformat()
         r["motivo"]=r.get("motivo","") or ""
         r["mes_idx"]=r.get("mes_idx")
+        r["tipo_ajuste"]=r.get("tipo_ajuste")
     return rows
 
 @app.post("/api/lancamentos")
 def criar_lancamento(data: LancamentoInput, user=Depends(verificar_token)):
     db = get_db(); cur = db.cursor()
     cur.execute(
-        "INSERT INTO lancamentos (user_id,descricao,valor,cat,local_nome,recorrencia,motivo,mes_idx) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+        "INSERT INTO lancamentos (user_id,descricao,valor,cat,local_nome,recorrencia,motivo,mes_idx,tipo_ajuste) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
         (user["id"],data.descricao,data.valor,data.cat,data.local or "",
-         data.recorrencia or "nunca", data.motivo or "", data.mes_idx)
+         data.recorrencia or "nunca", data.motivo or "", data.mes_idx, data.tipo_ajuste)
     )
     lid = cur.lastrowid; cur.close(); db.close(); return {"id": lid}
 
@@ -427,6 +429,7 @@ def listar_todos_lancamentos(user=Depends(verificar_token)):
         l["criado_em"] = l["criado_em"].isoformat()
         l["motivo"] = l.get("motivo","") or ""
         l["mes_idx"] = l.get("mes_idx")
+        l["tipo_ajuste"] = l.get("tipo_ajuste")
         cur.execute("SELECT id, nome_original, nome_arquivo, tipo, tamanho FROM lancamento_anexos WHERE lancamento_id=%s", (l["id"],))
         anexos = cur.fetchall()
         for a in anexos:
@@ -435,12 +438,12 @@ def listar_todos_lancamentos(user=Depends(verificar_token)):
         l["anexos"] = anexos
     cur.close(); db.close(); return lancs
 
-# ── COMPARATIVO ──
+# ── COMPARATIVO (só avulsos; ajustes de fixo já estão no valor do fixo) ──
 @app.get("/api/comparativo")
 def comparativo(user=Depends(verificar_token)):
     db = get_db(); cur = db.cursor(dictionary=True)
     cur.execute("""SELECT DATE_FORMAT(criado_em,'%Y-%m') as mes, cat, SUM(valor) as total
-        FROM lancamentos WHERE user_id=%s AND criado_em>=DATE_SUB(NOW(),INTERVAL 6 MONTH)
+        FROM lancamentos WHERE user_id=%s AND tipo_ajuste IS NULL AND criado_em>=DATE_SUB(NOW(),INTERVAL 6 MONTH)
         GROUP BY mes,cat ORDER BY mes DESC""", (user["id"],))
     rows = cur.fetchall(); cur.close(); db.close()
     for r in rows: r["total"]=float(r["total"])
@@ -503,6 +506,7 @@ def garantir_tabela_historico():
             UNIQUE KEY uq_hist_user_mes (user_id, mes_ref),
             FOREIGN KEY (user_id) REFERENCES usuarios(id) ON DELETE CASCADE
         )""")
+        cur.execute("ALTER TABLE lancamentos ADD COLUMN IF NOT EXISTS tipo_ajuste VARCHAR(20) DEFAULT NULL")
         cur.close(); db.close()
     except Exception:
         pass

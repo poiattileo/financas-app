@@ -1305,9 +1305,17 @@ function calcParcelasIdx(){
   });
   return arr;
 }
+function isAjuste(l){
+  // Ajuste de gasto fixo = só auditoria (o efeito já está no valor do fixo).
+  // Não entra nos totais. Fallback pelo prefixo cobre registros legados.
+  if(!l) return false;
+  if(l.tipo_ajuste==='subtrair'||l.tipo_ajuste==='somar') return true;
+  return /^(desconto|acr[eé]scimo)\s*:/i.test(l.descricao||'');
+}
 function calcLancIdx(){
   const arr=Array(MESES).fill(0);
   lancamentos.forEach(l=>{
+    if(isAjuste(l)) return; // ajuste de fixo: não soma no total
     let idx;
     if(l.mes_idx!==undefined&&l.mes_idx!==null){
       idx=l.mes_idx; // usa o mês selecionado pelo usuário
@@ -1787,7 +1795,7 @@ async function addLanc(d,v,c,l,r){
         descricao:desc,valor:valorAbs,cat:g?.cat||'outros',
         local:'',recorrencia:'nunca',
         motivo:motivo||(op==='subtrair'?'Subtração em gasto fixo':'Adição em gasto fixo'),
-        mes_idx:mesIdx
+        mes_idx:mesIdx,tipo_ajuste:op
       });
       lancamentos.unshift({id:resL.id,descricao:desc,valor:valorAbs,cat:g?.cat||'outros',
         local_nome:'',recorrencia:'nunca',motivo,mes_idx:mesIdx,
@@ -2728,13 +2736,17 @@ function gerarRelatorio(){
     return descNorm.includes(nomeNorm);
   });
 
-  // calcular total com ajustes
+  // O valor do fixo no mês JÁ inclui os ajustes, então ele é o final.
+  // totalAjustes (somas − descontos) serve só p/ recuperar a base original.
   let totalAjustes = 0;
   lancs.forEach(l => {
-    if(l.tipo_ajuste === 'subtrair') totalAjustes -= l.valor;
-    else if(l.tipo_ajuste === 'somar') totalAjustes += l.valor;
+    const sub = l.tipo_ajuste==='subtrair' || (!l.tipo_ajuste && /^desconto\s*:/i.test(l.descricao||''));
+    const som = l.tipo_ajuste==='somar' || (!l.tipo_ajuste && /^acr[eé]scimo\s*:/i.test(l.descricao||''));
+    if(sub) totalAjustes -= l.valor;
+    else if(som) totalAjustes += l.valor;
   });
-  const valorFinal = round2(valorBase + totalAjustes);
+  const valorOriginal = round2(valorBase - totalAjustes);
+  const valorFinal = valorBase;
 
   // montar texto
   const linhas = [];
@@ -2744,7 +2756,7 @@ function gerarRelatorio(){
   linhas.push(`${ci.emoji} *${g.nome}*`);
   linhas.push(`📂 Categoria: ${ci.label}`);
   linhas.push(``);
-  linhas.push(`💵 Valor base: *R$ ${valorBase.toFixed(2).replace('.',',')}*`);
+  linhas.push(`💵 Valor base: *R$ ${valorOriginal.toFixed(2).replace('.',',')}*`);
 
   if(lancs.length > 0){
     linhas.push(``);
@@ -2752,8 +2764,8 @@ function gerarRelatorio(){
     lancs.forEach(l => {
       const d = new Date(l.criado_em);
       const dia = d.toLocaleDateString('pt-BR', {day:'2-digit', month:'2-digit'});
-      const isSub = l.tipo_ajuste === 'subtrair';
-      const isAdd = l.tipo_ajuste === 'somar';
+      const isSub = l.tipo_ajuste==='subtrair' || (!l.tipo_ajuste && /^desconto\s*:/i.test(l.descricao||''));
+      const isAdd = l.tipo_ajuste==='somar' || (!l.tipo_ajuste && /^acr[eé]scimo\s*:/i.test(l.descricao||''));
       const sinal = isSub ? '➖' : isAdd ? '➕' : '•';
       const valStr = `R$ ${l.valor.toFixed(2).replace('.',',')}`;
       let linha = `${sinal} ${dia} — ${l.descricao} (${valStr})`;
