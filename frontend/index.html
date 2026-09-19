@@ -141,13 +141,13 @@ input.val.has-val{color:var(--text)}
 input.val.zero{color:var(--hint)}
 td.parc-cell{padding:5px 8px;font-family:var(--mono);font-size:12px;text-align:right;color:var(--purple)}
 td.parc-cell.empty{color:var(--hint)}
-tr.total-row td,tr.sobra-row td,tr.lanc-row td{position:sticky;bottom:0}
+tfoot.rodape{position:sticky;bottom:0;z-index:4}
 tr.total-row td{background:var(--surface);font-family:var(--mono);font-size:11px;font-weight:500;padding:5px 10px;border-top:2px solid var(--border2);color:var(--muted);text-align:right}
 tr.total-row td:first-child{position:sticky;left:0;z-index:3;text-align:left;color:var(--text);background:var(--surface)}
-tr.sobra-row td{background:var(--card);font-family:var(--mono);font-size:12px;font-weight:600;padding:5px 10px;color:var(--green);text-align:right;bottom:33px}
+tr.sobra-row td{background:var(--card);font-family:var(--mono);font-size:12px;font-weight:600;padding:5px 10px;color:var(--green);text-align:right}
 tr.sobra-row td:first-child{position:sticky;left:0;z-index:3;background:var(--card);color:var(--green)}
 tr.sobra-row td.neg{color:var(--red)}
-tr.lanc-row td{background:var(--amber-bg);font-family:var(--mono);font-size:11px;padding:4px 10px;color:var(--orange);text-align:right;bottom:66px;border-top:1px solid rgba(249,115,22,.2)}
+tr.lanc-row td{background:var(--amber-bg);font-family:var(--mono);font-size:11px;padding:4px 10px;color:var(--orange);text-align:right;border-top:1px solid rgba(249,115,22,.2)}
 tr.lanc-row td:first-child{position:sticky;left:0;z-index:3;background:var(--amber-bg);text-align:left}
 
 /* BANNER SOBRA */
@@ -1881,7 +1881,7 @@ function renderTabela(){
   tc+=`<td id="tot-${i}">—</td>`;
   sc+=`<td id="sob-${i}">—</td>`;
 }
-  wrap.innerHTML=`<table class="planilha"><thead><tr><th>Item</th>${th}</tr>${sp}</thead><tbody>${rg}${rp}<tr class="sobra-row"><td>↑ Sobra</td>${sc}</tr><tr class="lanc-row"><td>⚡ Lançamentos</td>${lc}</tr><tr class="total-row"><td>Total saídas</td>${tc}</tr></tbody></table>`;
+  wrap.innerHTML=`<table class="planilha"><thead><tr><th>Item</th>${th}</tr>${sp}</thead><tbody>${rg}${rp}</tbody><tfoot class="rodape"><tr class="sobra-row"><td>↑ Sobra</td>${sc}</tr><tr class="lanc-row"><td>⚡ Lançamentos</td>${lc}</tr><tr class="total-row"><td>Total saídas</td>${tc}</tr></tfoot></table>`;
   renderTotais();
   requestAnimationFrame(()=>aplicarCoresSalvas());
 }
