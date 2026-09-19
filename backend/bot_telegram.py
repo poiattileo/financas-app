@@ -22,6 +22,11 @@ Comandos:
   /vincular CODIGO - vincula este chat ao usuario que gerou o CODIGO no site
   /desvincular     - remove o vinculo
   /ajuda           - mostra o formato de mensagem
+  /comandos        - lista todos os comandos
+  /lancar          - registro guiado (rapido ou parcelado, tudo em 1 mensagem)
+  /relatorio       - relatorio estilo WhatsApp (pergunta gasto fixo + mes)
+  /relatorios      - relatorios rapidos do mes
+  /cancelar        - cancela a conversa atual
 """
 import os
 import re
@@ -381,6 +386,130 @@ def nome_mes_idx(mes_inicio_str, idx):
     except Exception:
         return f"mês {idx}"
 
+def nome_mes_longo(mes_inicio_str, idx):
+    try:
+        y0, m0 = map(int, mes_inicio_str.split("-"))
+        tot = (y0 * 12 + m0 - 1) + idx
+        ano, mes = tot // 12, tot % 12 + 1
+        nomes = ["janeiro","fevereiro","março","abril","maio","junho","julho",
+                 "agosto","setembro","outubro","novembro","dezembro"]
+        return f"{nomes[mes-1]} de {ano}"
+    except Exception:
+        return f"mês {idx}"
+
+def limpar_md(t):
+    """Tira caracteres que quebrariam o Markdown do Telegram."""
+    return re.sub(r"[*_`\[\]]", "", str(t or ""))
+
+def teclado_gastos(user_id):
+    try:
+        db = get_db(); cur = db.cursor(dictionary=True)
+        cur.execute("SELECT id, nome FROM gastos WHERE user_id=%s ORDER BY nome", (user_id,))
+        gastos = cur.fetchall(); cur.close(); db.close()
+    except Exception:
+        gastos = []
+    tecl = []
+    linha = []
+    for g in gastos:
+        linha.append({"text": g["nome"][:30], "callback_data": f"relg_{g['id']}"})
+        if len(linha) == 2:
+            tecl.append(linha); linha = []
+    if linha:
+        tecl.append(linha)
+    return tecl
+
+def teclado_meses(mes_inicio):
+    it = idx_trabalho(mes_inicio or "")
+    tecl = []
+    linha = []
+    for i in range(max(0, it - 5), it + 1):
+        linha.append({"text": nome_mes_idx(mes_inicio, i), "callback_data": f"relm_{i}"})
+        if len(linha) == 3:
+            tecl.append(linha); linha = []
+    if linha:
+        tecl.append(linha)
+    return tecl
+
+def gerar_relatorio_whatsapp(user, gasto_id, idx):
+    """Relatório por gasto fixo + mês, no formato do site (p/ copiar no WhatsApp)."""
+    mes_inicio = user.get("mes_inicio") or ""
+    db = get_db(); cur = db.cursor(dictionary=True)
+    cur.execute("SELECT id, nome, cat FROM gastos WHERE id=%s AND user_id=%s", (gasto_id, user["id"]))
+    g = cur.fetchone()
+    if not g:
+        cur.close(); db.close()
+        return "❌ Gasto não encontrado."
+    cur.execute("SELECT valor FROM gasto_valores WHERE gasto_id=%s AND idx=%s", (gasto_id, idx))
+    row = cur.fetchone()
+    valor_base = round(float(row["valor"]) if row else 0.0, 2)
+    cur.execute("SELECT descricao, valor, tipo_ajuste, motivo, local_nome, criado_em, mes_idx FROM lancamentos WHERE user_id=%s", (user["id"],))
+    todos = cur.fetchall()
+    cur.execute("SELECT nome, label, emoji FROM categorias")
+    cats = {c["nome"]: c for c in cur.fetchall()}
+    cur.close(); db.close()
+
+    nome_norm = normalizar(g["nome"])
+    lancs = []
+    for l in todos:
+        if l.get("mes_idx") is not None:
+            li = l["mes_idx"]
+        else:
+            d = l["criado_em"]
+            li = idx_do_mes(mes_inicio, d.year, d.month)
+        if li != idx:
+            continue
+        if nome_norm in normalizar(l["descricao"] or ""):
+            lancs.append(l)
+
+    total_ajustes = 0.0
+    for l in lancs:
+        sub = l.get("tipo_ajuste") == "subtrair" or (not l.get("tipo_ajuste") and re.match(r"(?i)^desconto\s*:", l["descricao"] or ""))
+        som = l.get("tipo_ajuste") == "somar" or (not l.get("tipo_ajuste") and re.match(r"(?i)^acr[eé]scimo\s*:", l["descricao"] or ""))
+        if sub:
+            total_ajustes -= float(l["valor"])
+        elif som:
+            total_ajustes += float(l["valor"])
+    valor_original = round(valor_base - total_ajustes, 2)
+
+    ci = cats.get(g["cat"], {"label": g["cat"], "emoji": "💳"})
+    mes_nome = nome_mes_longo(mes_inicio, idx)
+    fbr = lambda v: f"{v:.2f}".replace(".", ",")
+    linhas = []
+    linhas.append("💰 *Relatório Financeiro*")
+    linhas.append(f"📅 {mes_nome}")
+    linhas.append("─────────────────")
+    linhas.append(f"{ci.get('emoji', '💳')} *{limpar_md(g['nome'])}*")
+    linhas.append(f"📂 Categoria: {limpar_md(ci.get('label', g['cat']))}")
+    linhas.append("")
+    linhas.append(f"💵 Valor base: *R$ {fbr(valor_original)}*")
+    if lancs:
+        linhas.append("")
+        linhas.append("📝 *Lançamentos no mês:*")
+        for l in lancs:
+            d = l["criado_em"]
+            dia = f"{d.day:02d}/{d.month:02d}"
+            sub = l.get("tipo_ajuste") == "subtrair"
+            som = l.get("tipo_ajuste") == "somar"
+            sinal = "➖" if sub else ("➕" if som else "•")
+            linha = f"{sinal} {dia} — {limpar_md(l['descricao'])} (R$ {fbr(float(l['valor']))})"
+            if l.get("motivo"):
+                linha += f"\n   💬 _{limpar_md(l['motivo'])}_"
+            if l.get("local_nome"):
+                linha += f"\n   📍 {limpar_md(l['local_nome'])}"
+            linhas.append(linha)
+        linhas.append("")
+        linhas.append("─────────────────")
+        if total_ajustes < 0:
+            linhas.append(f"💸 Total descontos: *- R$ {fbr(abs(total_ajustes))}*")
+        elif total_ajustes > 0:
+            linhas.append(f"📈 Total acréscimos: *+ R$ {fbr(total_ajustes)}*")
+        linhas.append(f"✅ *Valor final a pagar: R$ {fbr(valor_base)}*")
+    else:
+        linhas.append("")
+        linhas.append(f"✅ *Valor a pagar: R$ {fbr(valor_base)}*")
+        linhas.append("_(sem lançamentos adicionais)_")
+    return "\n".join(linhas)
+
 def processar_parcelado(user, linhas):
     """Mensagem única de parcelado (5 linhas). Se o nome bater com um gasto
     fixo, soma as parcelas nele mês a mês; senão cria compra parcelada nova."""
@@ -469,15 +598,43 @@ def processar_callback(chat_id, callback_data):
     user = buscar_usuario_por_chat(chat_id)
     if not user:
         return "⚠️ Você não está vinculado a nenhuma conta."
+    if callback_data.startswith("relg_"):
+        try:
+            gid = int(callback_data.split("_", 1)[1])
+        except Exception:
+            return "❌ Opção inválida."
+        db = get_db(); cur = db.cursor(dictionary=True)
+        cur.execute("SELECT id, nome FROM gastos WHERE id=%s AND user_id=%s", (gid, user["id"]))
+        row = cur.fetchone(); cur.close(); db.close()
+        if not row:
+            return "❌ Gasto não encontrado."
+        conversas[chat_id] = {"tipo": "relatorio", "gasto": gid, "inicio": time.time()}
+        return (f"*{row['nome']}*\nQual mês?", teclado_meses(user.get("mes_inicio") or ""))
+    if callback_data.startswith("relm_"):
+        try:
+            idx = int(callback_data.split("_", 1)[1])
+        except Exception:
+            return "❌ Opção inválida."
+        est = conversas.get(chat_id)
+        if not est or est.get("tipo") != "relatorio" or "gasto" not in est:
+            return "⏰ Sessão expirada. Mande /relatorio de novo."
+        if conversa_expirada(chat_id):
+            return "⏰ A conversa expirou. Mande /relatorio de novo."
+        gid = est["gasto"]
+        conversas.pop(chat_id, None)
+        try:
+            return gerar_relatorio_whatsapp(user, gid, idx)
+        except Exception as e:
+            return f"❌ Erro ao gerar relatório: {e}"
     if callback_data == "lan_rapido" or callback_data == "lan_parcelado":
         tipo = "rapido" if callback_data == "lan_rapido" else "parcelado"
         conversas[chat_id] = {"tipo": tipo, "inicio": time.time()}
         if tipo == "rapido":
             return ("⚡ *Lançamento rápido*\n"
                     "Envie tudo em uma mensagem assim:\n"
-                    "```\nDescrição\nValor\nMês (opcional)\nMotivo (opcional)\n```\n"
-                    "• Se bater com um gasto fixo → ajusta ele (use `-` p/ subtrair)\n"
-                    "• Se não bater → cria avulso\n\n"
+                    "```\nGasto fixo ou novo\nValor\nMês (opcional)\nMotivo (opcional)\n```\n"
+                    "• Se for um gasto fixo já cadastrado → ajusta ele (use `-` p/ subtrair)\n"
+                    "• Se for novo → cria avulso\n\n"
                     "*Exemplo:*\n```\nCoxinha\n12,50\noutubro\nLanche da tarde\n```")
         return ("💳 *Compra parcelada*\n"
                 "Envie assim:\n"
@@ -519,7 +676,7 @@ def processar_mensagem(chat_id, texto):
                 "gere um código e me envie:\n`/vincular 123456`\n\n"
                 "Depois use /lancar para registrar guiado, ou mande direto no formato:\n"
                 "```\nNome do gasto\nValor\nMês (opcional)\nMotivo (opcional)\n```\n\n"
-                "Digite /relatorios para ver relatórios rápidos!")
+                "Digite /comandos para ver tudo que eu faço!")
 
     if texto.startswith("/ajuda"):
         return ("📋 *Formato da mensagem:*\n```\nNome do gasto\nValor\nMês (opcional)\nMotivo (opcional)\n```\n\n"
@@ -531,6 +688,26 @@ def processar_mensagem(chat_id, texto):
                 "Para parcelado, use /lancar → 💳 (nome bate com fixo = soma nele, senão cria separado).\n\n"
                 "Digite /relatorios para ver relatórios rápidos!\n\n"
                 "Ou use /lancar para o registro guiado (rápido ou parcelado).")
+
+    if texto.startswith("/comandos"):
+        return ("⌨️ *Comandos:*\n"
+                "/lancar — registro guiado (rápido ou parcelado)\n"
+                "/relatorio — relatório estilo WhatsApp (pergunta gasto + mês)\n"
+                "/relatorios — relatórios rápidos do mês\n"
+                "/ajuda — formato da mensagem direta\n"
+                "/cancelar — cancela a conversa atual\n"
+                "/vincular 123456 — vincula tua conta\n"
+                "/desvincular — desvincula")
+
+    if texto == "/relatorio" or texto.startswith("/relatorio "):
+        user = buscar_usuario_por_chat(chat_id)
+        if not user:
+            return ("⚠️ Você ainda não está vinculado a nenhuma conta.\n"
+                    "Vá em Configurações no site, gere um código, e me envie:\n`/vincular 123456`")
+        tecl = teclado_gastos(user["id"])
+        if not tecl:
+            return "📋 Nenhum gasto fixo cadastrado ainda. Cadastre no site primeiro."
+        return ("📱 *Relatório estilo WhatsApp*\nQual gasto fixo?", tecl)
 
     if texto.startswith("/lancar"):
         user = buscar_usuario_por_chat(chat_id)
@@ -612,7 +789,10 @@ def main():
                     print(f"[callback] chat={chat_id}: {callback_data}")
                     responder_callback(cq["id"])
                     resposta = processar_callback(chat_id, callback_data)
-                    enviar_msg(chat_id, resposta)
+                    if isinstance(resposta, tuple):
+                        enviar_msg(chat_id, resposta[0], teclado=resposta[1])
+                    else:
+                        enviar_msg(chat_id, resposta)
                     continue
 
                 msg = update.get("message")
@@ -622,7 +802,9 @@ def main():
                 texto = msg["text"]
                 print(f"[recebido] chat={chat_id}: {texto[:50]}")
                 resposta = processar_mensagem(chat_id, texto)
-                if resposta == "escolher_relatorio":
+                if isinstance(resposta, tuple):
+                    enviar_msg(chat_id, resposta[0], teclado=resposta[1])
+                elif resposta == "escolher_relatorio":
                     enviar_msg(chat_id, "📈 *Escolha o relatório:*", teclado=menu_relatorios())
                 elif resposta == "escolher_lancar":
                     enviar_msg(chat_id, "🧾 *O que vai ser?*", teclado=menu_lancar())
