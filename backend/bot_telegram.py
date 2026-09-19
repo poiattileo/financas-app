@@ -334,10 +334,157 @@ def menu_relatorios():
         [{"text": "📅 Histórico", "callback_data": "rel_historico"}],
     ]
 
+# ── /LANCAR GUIADO (conversa por etapas) ──
+CONVERSA_TIMEOUT = 15 * 60  # 15 min sem resposta = expira
+conversas = {}  # chat_id -> {"tipo", "etapa", "dados", "inicio"}
+
+def menu_lancar():
+    return [
+        [{"text": "⚡ Lançamento rápido", "callback_data": "lan_rapido"}],
+        [{"text": "💳 Compra parcelada", "callback_data": "lan_parcelado"}],
+    ]
+
+def conversa_expirada(chat_id):
+    est = conversas.get(chat_id)
+    if not est:
+        return True
+    if time.time() - est.get("inicio", 0) > CONVERSA_TIMEOUT:
+        conversas.pop(chat_id, None)
+        return True
+    return False
+
+def resolver_categoria(texto):
+    """Tenta mapear o texto p/ uma categoria existente; senão, 'outros'."""
+    try:
+        db = get_db(); cur = db.cursor(dictionary=True)
+        cur.execute("SELECT nome, label FROM categorias")
+        cats = cur.fetchall(); cur.close(); db.close()
+    except Exception:
+        return "outros"
+    norm = normalizar(texto)
+    for c in cats:
+        if norm in (normalizar(c["nome"]), normalizar(c["label"])):
+            return c["nome"]
+    for c in cats:
+        if normalizar(c["nome"]).startswith(norm) or normalizar(c["label"]).startswith(norm):
+            return c["nome"]
+    return "outros"
+
+def hint_categorias():
+    try:
+        db = get_db(); cur = db.cursor(dictionary=True)
+        cur.execute("SELECT label FROM categorias ORDER BY label LIMIT 12")
+        labels = [r["label"] for r in cur.fetchall()]; cur.close(); db.close()
+    except Exception:
+        labels = []
+    if not labels:
+        return ""
+    return "\nEx: " + ", ".join(labels)
+
+def _mes_ou_trabalho(t, mes_inicio):
+    """Interpreta o mês digitado; '-' ou vazio = mês de trabalho."""
+    t = (t or "").strip()
+    if t in ("", "-", "pular"):
+        return idx_trabalho(mes_inicio or "")
+    return parse_mes(t, mes_inicio or "")
+
+def processar_conversa(chat_id, user, texto):
+    if conversa_expirada(chat_id):
+        return "⏰ A conversa expirou. Mande /lancar para começar de novo."
+    est = conversas[chat_id]
+    etapa = est["etapa"]
+    dados = est["dados"]
+    t = texto.strip()
+    mes_inicio = user.get("mes_inicio") or ""
+
+    if est["tipo"] == "rapido":
+        if etapa == "r_desc":
+            if len(t) < 2:
+                return "❌ Descrição muito curta. Manda de novo (ou /cancelar)."
+            dados["desc"] = t
+            est["etapa"] = "r_valor"
+            return f"*{t}*\nAgora o valor (ex: `12,50`)"
+        if etapa == "r_valor":
+            v = parse_valor(t)
+            if v is None or v <= 0:
+                return "❌ Não entendi o valor. Manda algo como `12,50` (ou /cancelar)."
+            dados["valor"] = abs(v)
+            est["etapa"] = "r_mes"
+            return "Mês? (ex: `outubro`, `10/2026` ou `-` para o mês de trabalho)"
+        if etapa == "r_mes":
+            idx = _mes_ou_trabalho(t, mes_inicio)
+            if idx is None:
+                return "❌ Não entendi o mês. Manda tipo `outubro`, `10/2026` ou `-` (ou /cancelar)."
+            dados["idx"] = idx
+            est["etapa"] = "r_motivo"
+            return "Motivo? (ou `-` para pular)"
+        if etapa == "r_motivo":
+            motivo = "" if t in ("-", "pular") else t
+            db = get_db(); cur = db.cursor()
+            cur.execute(
+                "INSERT INTO lancamentos (user_id,descricao,valor,cat,local_nome,recorrencia,motivo,mes_idx,tipo_ajuste) VALUES (%s,%s,%s,'outros','','nunca',%s,%s,NULL)",
+                (user["id"], dados["desc"], dados["valor"], motivo, dados["idx"]))
+            cur.close(); db.close()
+            conversas.pop(chat_id, None)
+            resp = f"✅ Lançamento registrado!\n*{dados['desc']}* — R$ {dados['valor']:.2f}"
+            if motivo:
+                resp += f"\n💬 _{motivo}_"
+            return resp
+        return "❌ Etapa inválida. Mande /lancar para recomeçar."
+
+    # parcelado
+    if etapa == "p_desc":
+        if len(t) < 2:
+            return "❌ Descrição muito curta. Manda de novo (ou /cancelar)."
+        dados["desc"] = t
+        est["etapa"] = "p_total"
+        return f"*{t}*\nValor total? (ex: `1200`)"
+    if etapa == "p_total":
+        v = parse_valor(t)
+        if v is None or v <= 0:
+            return "❌ Não entendi o valor. Manda algo como `1200` (ou /cancelar)."
+        dados["total"] = abs(v)
+        est["etapa"] = "p_qtd"
+        return "Em quantas parcelas? (ex: `12`)"
+    if etapa == "p_qtd":
+        m = re.match(r"(\d+)", t)
+        qtd = int(m.group(1)) if m else 0
+        if not 1 <= qtd <= 48:
+            return "❌ Quantidade inválida. Manda um número de 1 a 48 (ou /cancelar)."
+        dados["qtd"] = qtd
+        est["etapa"] = "p_mes"
+        return "Mês da 1ª parcela? (ex: `outubro`, `10/2026` ou `-` para o mês de trabalho)"
+    if etapa == "p_mes":
+        idx = _mes_ou_trabalho(t, mes_inicio)
+        if idx is None:
+            return "❌ Não entendi o mês. Manda tipo `outubro`, `10/2026` ou `-` (ou /cancelar)."
+        dados["idx"] = idx
+        est["etapa"] = "p_cat"
+        return "Categoria? (ou `-` para Outros)" + hint_categorias()
+    if etapa == "p_cat":
+        cat = "outros" if t in ("", "-", "pular") else resolver_categoria(t)
+        vp = round(dados["total"] / dados["qtd"], 2)
+        db = get_db(); cur = db.cursor()
+        cur.execute(
+            "INSERT INTO parcelas (user_id,nome,cat,total,qtd,mes_idx,valor_parcela) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+            (user["id"], dados["desc"], cat, dados["total"], dados["qtd"], dados["idx"], vp))
+        cur.close(); db.close()
+        conversas.pop(chat_id, None)
+        return (f"✅ Parcelado registrado!\n*{dados['desc']}* — {dados['qtd']}x de R$ {vp:.2f} "
+                f"(total R$ {dados['total']:.2f})")
+    return "❌ Etapa inválida. Mande /lancar para recomeçar."
+
 def processar_callback(chat_id, callback_data):
     user = buscar_usuario_por_chat(chat_id)
     if not user:
         return "⚠️ Você não está vinculado a nenhuma conta."
+    if callback_data == "lan_rapido" or callback_data == "lan_parcelado":
+        tipo = "rapido" if callback_data == "lan_rapido" else "parcelado"
+        conversas[chat_id] = {"tipo": tipo, "etapa": "r_desc" if tipo == "rapido" else "p_desc",
+                              "dados": {}, "inicio": time.time()}
+        if tipo == "rapido":
+            return "⚡ *Lançamento rápido*\nManda a descrição (ex: `Coxinha`)"
+        return "💳 *Compra parcelada*\nManda a descrição (ex: `TV`)"
     mapa = {
         "rel_resumo": relatorio_resumo_mes,
         "rel_fixos": relatorio_gastos_fixos,
@@ -356,11 +503,21 @@ def processar_callback(chat_id, callback_data):
 def processar_mensagem(chat_id, texto):
     texto = texto.strip()
 
+    if texto.startswith("/cancelar"):
+        if chat_id in conversas:
+            conversas.pop(chat_id, None)
+            return "🚫 Conversa cancelada. Use /lancar para começar de novo."
+        return "Nada em andamento. Use /lancar para registrar."
+
+    if texto.startswith("/") and chat_id in conversas:
+        # outro comando no meio da conversa: abandona e segue o comando
+        conversas.pop(chat_id, None)
+
     if texto.startswith("/start"):
         return ("👋 Olá! Eu sou o bot de lançamentos do seu app de Finanças.\n\n"
                 "Para me vincular à sua conta, vá em *Configurações* no site, "
                 "gere um código e me envie:\n`/vincular 123456`\n\n"
-                "Depois é só mandar mensagens no formato:\n"
+                "Depois use /lancar para registrar guiado, ou mande direto no formato:\n"
                 "```\nNome do gasto\nValor\nMês (opcional)\nMotivo (opcional)\n```\n\n"
                 "Digite /relatorios para ver relatórios rápidos!")
 
@@ -371,7 +528,27 @@ def processar_mensagem(chat_id, texto):
                 "• *Mês* pode ser tipo `agosto` ou `08/2026`. Se não informar, usa o mês atual.\n"
                 "• *Motivo* fica salvo e aparece quando você passar o mouse no valor, no site.\n\n"
                 "*Exemplo:*\n```\nMelody\n-35.42\njulho\nFulano pagou a parte dele\n```\n\n"
-                "Digite /relatorios para ver relatórios rápidos!")
+                "Digite /relatorios para ver relatórios rápidos!\n\n"
+                "Ou use /lancar para o registro guiado (rápido ou parcelado).")
+
+    if texto.startswith("/lancar"):
+        user = buscar_usuario_por_chat(chat_id)
+        if not user:
+            return ("⚠️ Você ainda não está vinculado a nenhuma conta.\n"
+                    "Vá em Configurações no site, gere um código, e me envie:\n`/vincular 123456`")
+        return "escolher_lancar"  # sinal especial tratado no loop principal
+
+    # conversa do /lancar em andamento?
+    if chat_id in conversas:
+        user = buscar_usuario_por_chat(chat_id)
+        if not user:
+            conversas.pop(chat_id, None)
+            return ("⚠️ Você ainda não está vinculado a nenhuma conta.\n"
+                    "Vá em Configurações no site, gere um código, e me envie:\n`/vincular 123456`")
+        try:
+            return processar_conversa(chat_id, user, texto)
+        except Exception as e:
+            return f"❌ Erro ao processar: {e}"
 
     if texto.startswith("/vincular"):
         partes = texto.split()
@@ -446,6 +623,8 @@ def main():
                 resposta = processar_mensagem(chat_id, texto)
                 if resposta == "escolher_relatorio":
                     enviar_msg(chat_id, "📈 *Escolha o relatório:*", teclado=menu_relatorios())
+                elif resposta == "escolher_lancar":
+                    enviar_msg(chat_id, "🧾 *O que vai ser?*", teclado=menu_lancar())
                 else:
                     enviar_msg(chat_id, resposta)
         except Exception as e:
