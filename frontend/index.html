@@ -1234,6 +1234,43 @@ function toast(msg,ok=true){
   t.textContent=msg;t.style.borderColor=ok?'var(--green)':'var(--red)';t.style.color=ok?'var(--green)':'var(--red)';
   t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2400);
 }
+// Toast com botão Desfazer (usado após registrar lançamento).
+let ultimoLanc=null,toastTimer=null;
+function toastDesfazer(msg){
+  const t=document.getElementById('toast');
+  t.innerHTML='';
+  const sp=document.createElement('span');sp.textContent=msg;t.appendChild(sp);
+  const btn=document.createElement('button');btn.textContent='↩ Desfazer';
+  btn.style.cssText='margin-left:10px;background:transparent;border:1px solid var(--amber);color:var(--amber);border-radius:6px;padding:3px 10px;font-size:12px;font-weight:600;cursor:pointer;font-family:Inter,sans-serif';
+  btn.onclick=desfazerUltimoLanc;t.appendChild(btn);
+  t.style.borderColor='var(--amber)';t.style.color='var(--text)';
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer=setTimeout(()=>{t.classList.remove('show');ultimoLanc=null;},8000);
+}
+async function desfazerUltimoLanc(){
+  if(!ultimoLanc){toast('Nada para desfazer','err');return;}
+  const u=ultimoLanc;ultimoLanc=null;clearTimeout(toastTimer);
+  document.getElementById('toast').classList.remove('show');
+  try{
+    if(u.modo==='fixo'){
+      // volta o valor do fixo e apaga o registro espelho
+      await api('PUT',`/gastos/${u.gid}/valor`,{idx:u.idx,valor:u.anterior});
+      const g=gastos.find(x=>x.id===u.gid);if(g)g.valores[u.idx]=u.anterior;
+      try{await api('DELETE',`/lancamentos/${u.lancId}`);}catch(e){}
+      lancamentos=lancamentos.filter(l=>l.id!==u.lancId);
+      todosLancamentos=todosLancamentos.filter(l=>l.id!==u.lancId);
+      renderTabela();renderLancamentos();renderSobraBanner();renderSobraBanner2();renderTotais();
+      toast(`Ajuste em ${u.desc||'gasto'} desfeito`);
+    } else {
+      await api('DELETE',`/lancamentos/${u.lancId}`);
+      lancamentos=lancamentos.filter(l=>l.id!==u.lancId);
+      todosLancamentos=todosLancamentos.filter(l=>l.id!==u.lancId);
+      renderLancamentos();renderSobraBanner();renderSobraBanner2();renderTotais();
+      toast('Lançamento desfeito');
+    }
+  }catch(e){toast('Erro ao desfazer: '+e.message,false);}
+}
 async function api(method,path,body=null){
   const opts={method,headers:{'Content-Type':'application/json'}};
   if(token)opts.headers['Authorization']='Bearer '+token;
@@ -1786,6 +1823,7 @@ async function addLanc(d,v,c,l,r){
     const deltaFinal=op==='subtrair'?-delta:delta;
     try{
       const g=gastos.find(x=>x.id===gid);
+      const valorAnterior=g?(g.valores[mesIdx]||0):0;
       const res=await api('POST','/gastos/ajuste',{gasto_id:gid,idx:mesIdx,delta:deltaFinal});
       if(g)g.valores[mesIdx]=res.novo_valor;
       // registra também como lançamento para aparecer no histórico
@@ -1803,7 +1841,8 @@ async function addLanc(d,v,c,l,r){
         local_nome:'',recorrencia:'nunca',motivo,mes_idx:mesIdx,
         tipo_ajuste:op,criado_em:dataLanc.toISOString()});
       closeOv('ov-lanc');renderTabela();renderLancamentos();renderSobraBanner();renderSobraBanner2();
-      toast(`${g?.nome||'Gasto'} → ${fmt(res.novo_valor)} no mês ${mesLabel(mesIdx,false)}!`);
+      ultimoLanc={modo:'fixo',gid,idx:mesIdx,anterior:valorAnterior,lancId:resL.id,desc:g?.nome||'Gasto fixo'};
+      toastDesfazer(`${g?.nome||'Gasto'} → ${fmt(res.novo_valor)}!`);
     }catch(e){toast('Erro: '+e.message,false);}
     return;
   }
@@ -1832,7 +1871,8 @@ async function addLanc(d,v,c,l,r){
       novoLanc.anexos=anexosResp;
     }
     closeOv('ov-lanc');renderLancamentos();renderSobraBanner();renderSobraBanner2();renderTotais();
-    toast(`${fmt(valor)} registrado!`);
+    ultimoLanc={modo:'avulso',lancId:res.id};
+    toastDesfazer(`${fmt(valor)} registrado!`);
   }catch(e){toast('Erro: '+e.message,false);}
 }
 async function confirmarRepetir(){if(!repetirLanc)return;await addLanc(repetirLanc.descricao,repetirLanc.valor,repetirLanc.cat,repetirLanc.local_nome,repSel);closeOv('ov-repetir');}
