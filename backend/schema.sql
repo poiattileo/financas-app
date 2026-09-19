@@ -112,3 +112,30 @@ CREATE TABLE IF NOT EXISTS historico_meses (
     UNIQUE KEY uq_hist_user_mes (user_id, mes_ref),
     FOREIGN KEY (user_id) REFERENCES usuarios(id) ON DELETE CASCADE
 );
+
+-- Anotações (controle paralelo: não entra em nenhum total)
+CREATE TABLE IF NOT EXISTS anotacoes (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    titulo VARCHAR(100) NOT NULL,
+    criado_em DATETIME DEFAULT NOW(),
+    FOREIGN KEY (user_id) REFERENCES usuarios(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS anotacao_itens (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    anotacao_id INT NOT NULL,
+    nome VARCHAR(100) NOT NULL,
+    valor_total DECIMAL(12,2) NOT NULL,
+    qtd INT NOT NULL,
+    mes_ref VARCHAR(7) NOT NULL,
+    FOREIGN KEY (anotacao_id) REFERENCES anotacoes(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS anotacao_checks (
+    item_id INT NOT NULL,
+    k INT NOT NULL,
+    marcado_em DATETIME DEFAULT NOW(),
+    PRIMARY KEY (item_id, k),
+    FOREIGN KEY (item_id) REFERENCES anotacao_itens(id) ON DELETE CASCADE
+);

@@ -517,6 +517,25 @@ input[type=number]{-moz-appearance:textfield}
 .lr-empty{text-align:center;padding:3rem;color:var(--hint);font-size:13px}
 .lr-count{font-size:12px;color:var(--muted);margin-bottom:.75rem}
 
+/* ANOTAÇÕES */
+.anot-wrap{flex:1;overflow-y:auto;padding:1rem;max-width:720px;margin:0 auto;width:100%}
+.anot-card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:1rem 1.1rem;margin-bottom:.75rem;box-shadow:var(--shadow);animation:fadeInUp .3s ease both}
+.anot-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:.25rem;gap:8px}
+.anot-titulo{font-size:14px;font-weight:600}
+.anot-resumo{font-size:11px;color:var(--muted);margin-bottom:.4rem}
+.anot-item{border-top:1px solid var(--border);padding:.7rem 0 .3rem}
+.anot-item-top{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.anot-nome{font-size:13px;font-weight:600}
+.anot-sub{font-size:11px;color:var(--muted);margin-top:2px}
+.anot-progress{font-family:var(--mono);font-size:11px;color:var(--green);flex-shrink:0}
+.anot-chips{display:flex;flex-wrap:wrap;gap:6px;margin:.6rem 0 .4rem}
+.anot-chip{padding:5px 10px;border-radius:20px;border:1px solid var(--border);background:var(--surface);color:var(--muted);font-size:11px;cursor:pointer;transition:.15s;font-family:'Inter',sans-serif}
+.anot-chip small{opacity:.7}
+.anot-chip.pago{background:var(--green-bg);border-color:var(--green);color:var(--green)}
+.anot-empty{text-align:center;padding:3rem;color:var(--hint);font-size:13px}
+.anot-del{background:none;border:none;color:var(--hint);cursor:pointer;font-size:12px;padding:4px;border-radius:4px}
+.anot-del:hover{color:var(--red)}
+
 /* LIGHTBOX */
 .lightbox{position:fixed;inset:0;background:rgba(0,0,0,.9);z-index:300;display:none;align-items:center;justify-content:center;padding:1rem}
 .lightbox.open{display:flex}
@@ -597,6 +616,10 @@ input[type=number]{-moz-appearance:textfield}
       <div class="comp-wrap" id="comp-wrap"><div class="loading"><div class="spinner"></div>Carregando...</div></div>
     </div>
     <div class="page" id="tab-historico"><div class="hist-wrap" id="hist-wrap"></div></div>
+    <div class="page" id="tab-anotacoes">
+      <div class="toolbar"><button class="btn btn-primary" onclick="openModalAnotacao()">+ Nova anotação</button></div>
+      <div class="anot-wrap" id="anot-wrap"></div>
+    </div>
     <div class="page" id="tab-resumo">
       <div class="toolbar">
         <button class="btn btn-ghost" onclick="openModalRelatorio()" style="color:var(--green);border-color:rgba(37,211,102,.3);background:rgba(37,211,102,.08)">📱 Relatório WhatsApp</button>
@@ -761,6 +784,9 @@ input[type=number]{-moz-appearance:textfield}
     </button>
     <button class="bn-item" onclick="goTab('historico')" id="bn-historico">
       <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>Histórico
+    </button>
+    <button class="bn-item" onclick="goTab('anotacoes')" id="bn-anotacoes">
+      <svg viewBox="0 0 24 24"><path d="M17 3a2.83 2.83 0 0 1 4 4L7.5 20.5 2 22l1.5-5.5z"/></svg>Notas
     </button>
     <button class="bn-item" onclick="goTab('resumo')" id="bn-resumo">
       <svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>Resumo
@@ -1029,6 +1055,37 @@ input[type=number]{-moz-appearance:textfield}
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeOv('ov-aportar')">Cancelar</button>
       <button class="btn btn-teal" onclick="confirmarAporte()">Adicionar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL ANOTAÇÃO -->
+<div class="overlay" id="ov-anotacao" onclick="closeOvOutside(event,'ov-anotacao')">
+  <div class="modal" style="max-width:380px">
+    <span class="modal-drag"></span>
+    <h3>📝 Nova anotação</h3>
+    <div class="field"><label>Título (ex: AirBNB)</label><input id="an-titulo" placeholder="Ex: AirBNB..." onkeydown="if(event.key==='Enter')addAnotacao()"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeOv('ov-anotacao')">Cancelar</button>
+      <button class="btn btn-primary" onclick="addAnotacao()">Criar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL ITEM DA ANOTAÇÃO -->
+<div class="overlay" id="ov-anotacao-item" onclick="closeOvOutside(event,'ov-anotacao-item')">
+  <div class="modal" style="max-width:380px">
+    <span class="modal-drag"></span>
+    <h3 id="ai-titulo">＋ Pessoa</h3>
+    <div class="field"><label>Nome</label><input id="ai-nome" placeholder="Ex: Fulano..."></div>
+    <div class="field-row">
+      <div class="field"><label>Valor total (R$)</label><input id="ai-valor" type="number" placeholder="0,00" step="0.01" inputmode="decimal"></div>
+      <div class="field"><label>Parcelas</label><input id="ai-qtd" type="number" placeholder="12" min="1" max="120" inputmode="numeric"></div>
+    </div>
+    <div class="field"><label>Mês da 1ª parcela</label><input type="month" id="ai-mes"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeOv('ov-anotacao-item')">Cancelar</button>
+      <button class="btn btn-primary" onclick="addAnotacaoItem()">Adicionar</button>
     </div>
   </div>
 </div>
@@ -1425,6 +1482,7 @@ function goTab(id){
   document.getElementById('bn-'+id)?.classList.add('active');
   if(id==='resumo')renderResumo();
   if(id==='historico')renderHistorico();
+  if(id==='anotacoes')renderAnotacoes();
   if(id==='lancamentos'){renderLancamentos();renderSobraBanner2();}
   if(id==='metas')renderMetas();
   if(id==='comparativo')renderComparativo();
@@ -2000,6 +2058,91 @@ function renderMetas(){
         <div class="meta-actions"><button class="btn btn-teal" onclick="openModalAportar(${m.id},'${m.nome.replace(/'/g,"\\'")}')">+ Aportar</button><button class="btn btn-danger" onclick="delMeta(${m.id})">✕</button></div>
       </div></div>`;
   }).join('');
+}
+
+// ── ANOTAÇÕES (controle paralelo: não entra em nenhum total) ──
+let anotacoes=[],anotacaoAlvo=null;
+
+function mesRefAdd(ref,k){
+  const[y,m]=ref.split('-').map(Number);
+  const d=new Date(y,m-1+k,1);
+  const curto=d.toLocaleString('pt-BR',{month:'short'}).replace('.','');
+  return `${curto}/${String(d.getFullYear()).slice(2)}`;
+}
+function vpItem(it){return it.qtd>0?round2(it.valor_total/it.qtd):0;}
+
+async function renderAnotacoes(){
+  const wrap=document.getElementById('anot-wrap');
+  wrap.innerHTML='<div class="loading"><div class="spinner"></div>Carregando...</div>';
+  try{anotacoes=await api('GET','/anotacoes');}catch(e){anotacoes=[];}
+  if(!anotacoes.length){wrap.innerHTML='<div class="anot-empty">Nenhuma anotação ainda.<br>Crie uma (ex: AirBNB) e adicione as pessoas.</div>';return;}
+  wrap.innerHTML=anotacoes.map((n,ni)=>{
+    const totPrev=n.itens.reduce((s,it)=>s+(it.qtd||0),0);
+    const totPagas=n.itens.reduce((s,it)=>s+((it.pagas||[]).length),0);
+    const totValor=n.itens.reduce((s,it)=>s+(round2(it.valor_total)||0),0);
+    const itensHtml=n.itens.length?n.itens.map(it=>{
+      const vp=vpItem(it),pagas=new Set(it.pagas||[]);
+      const chips=Array.from({length:it.qtd},(_,j)=>{
+        const k=j+1,on=pagas.has(k);
+        return `<button class="anot-chip${on?' pago':''}" onclick="toggleCheck(${it.id},${k})" title="${on?'Pago — clique p/ desmarcar':'Em aberto — clique p/ marcar'}">${on?'✓ ':''}${k}/${it.qtd} <small>${mesRefAdd(it.mes_ref,j)}</small></button>`;
+      }).join('');
+      return `<div class="anot-item">
+        <div class="anot-item-top">
+          <div><div class="anot-nome">${it.nome}</div>
+          <div class="anot-sub">${fmt(it.valor_total)} total · ${it.qtd}x de ${fmt(vp)} · desde ${mesRefAdd(it.mes_ref,0)}</div></div>
+          <div style="display:flex;align-items:center;gap:6px">
+            <span class="anot-progress">${pagas.size}/${it.qtd} ✓</span>
+            <button class="anot-del" onclick="delAnotacaoItem(${it.id})" title="Remover">✕</button>
+          </div>
+        </div>
+        <div class="anot-chips">${chips}</div>
+      </div>`;
+    }).join(''):'<div style="font-size:12px;color:var(--hint);padding:.4rem 0">Sem pessoas ainda. Clique em + Pessoa.</div>';
+    return `<div class="anot-card fade-in" style="animation-delay:${ni*0.05}s">
+      <div class="anot-head">
+        <span class="anot-titulo">📝 ${n.titulo}</span>
+        <div style="display:flex;gap:6px;align-items:center">
+          <button class="btn btn-primary" onclick="openModalAnotacaoItem(${n.id})" style="font-size:11px;padding:4px 10px">+ Pessoa</button>
+          <button class="anot-del" onclick="delAnotacao(${n.id})" title="Apagar anotação">✕</button>
+        </div>
+      </div>
+      <div class="anot-resumo">${n.itens.length} pessoa(s) · ${totPagas}/${totPrev} parcelas pagas · ${fmt(totValor)} total</div>
+      ${itensHtml}
+    </div>`;
+  }).join('');
+}
+
+function openModalAnotacao(){document.getElementById('an-titulo').value='';openOv('ov-anotacao');setTimeout(()=>document.getElementById('an-titulo').focus(),80);}
+async function addAnotacao(){
+  const t=document.getElementById('an-titulo').value.trim();
+  if(!t){toast('Dê um título','err');return;}
+  try{await api('POST','/anotacoes',{titulo:t});closeOv('ov-anotacao');renderAnotacoes();toast('Anotação criada!');}catch(e){toast('Erro: '+e.message,false);}
+}
+async function delAnotacao(id){if(!confirm('Apagar esta anotação e tudo dentro?'))return;try{await api('DELETE',`/anotacoes/${id}`);renderAnotacoes();toast('Apagada');}catch(e){toast('Erro',false);}}
+function openModalAnotacaoItem(nid){
+  anotacaoAlvo=nid;
+  const n=anotacoes.find(x=>x.id===nid);
+  document.getElementById('ai-titulo').textContent=`＋ Pessoa em: ${n?.titulo||''}`;
+  ['ai-nome','ai-valor','ai-qtd'].forEach(id=>document.getElementById(id).value='');
+  const now=new Date();
+  document.getElementById('ai-mes').value=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+  openOv('ov-anotacao-item');setTimeout(()=>document.getElementById('ai-nome').focus(),80);
+}
+async function addAnotacaoItem(){
+  const nome=document.getElementById('ai-nome').value.trim();
+  const valor=parseFloat(document.getElementById('ai-valor').value)||0;
+  const qtd=parseInt(document.getElementById('ai-qtd').value)||0;
+  const mes=document.getElementById('ai-mes').value;
+  if(!nome||!valor||!qtd||!mes){toast('Preencha tudo','err');return;}
+  try{await api('POST',`/anotacoes/${anotacaoAlvo}/itens`,{nome,valor_total:valor,qtd,mes_ref:mes});closeOv('ov-anotacao-item');renderAnotacoes();toast('Adicionado!');}catch(e){toast('Erro: '+e.message,false);}
+}
+async function delAnotacaoItem(iid){if(!confirm('Remover esta pessoa?'))return;try{await api('DELETE',`/anotacoes/itens/${iid}`);renderAnotacoes();toast('Removido');}catch(e){toast('Erro',false);}}
+async function toggleCheck(iid,k){
+  try{
+    const r=await api('POST',`/anotacoes/itens/${iid}/check`,{k});
+    toast(r.pago?'Pago ✓':'Desmarcado');
+    renderAnotacoes();
+  }catch(e){toast('Erro: '+e.message,false);}
 }
 
 function renderComparativo(){

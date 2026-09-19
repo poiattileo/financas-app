@@ -137,6 +137,18 @@ class HistoricoFecharInput(BaseModel):
     sobra: float = 0
     detalhes: Optional[str] = ""
 
+class AnotacaoInput(BaseModel):
+    titulo: str
+
+class AnotacaoItemInput(BaseModel):
+    nome: str
+    valor_total: float
+    qtd: int
+    mes_ref: str  # "YYYY-MM" da 1ª parcela (absoluto)
+
+class AnotacaoCheckInput(BaseModel):
+    k: int  # 1..qtd (número da parcela)
+
 # ── AUTH ──
 @app.post("/api/login")
 def login(data: LoginInput):
@@ -486,6 +498,86 @@ def reabrir_mes(hid: int, user=Depends(verificar_token)):
     cur.execute("DELETE FROM historico_meses WHERE id=%s AND user_id=%s", (hid, user["id"]))
     cur.close(); db.close(); return {"ok": True}
 
+# ── ANOTAÇÕES (controle paralelo: não entra em nenhum total) ──
+@app.get("/api/anotacoes")
+def listar_anotacoes(user=Depends(verificar_token)):
+    db = get_db(); cur = db.cursor(dictionary=True)
+    cur.execute("SELECT * FROM anotacoes WHERE user_id=%s ORDER BY criado_em DESC", (user["id"],))
+    notas = cur.fetchall()
+    for n in notas:
+        n["criado_em"] = n["criado_em"].isoformat() if n.get("criado_em") else ""
+        cur.execute("SELECT * FROM anotacao_itens WHERE anotacao_id=%s ORDER BY id", (n["id"],))
+        itens = cur.fetchall()
+        for it in itens:
+            it["valor_total"] = float(it["valor_total"] or 0)
+            cur.execute("SELECT k FROM anotacao_checks WHERE item_id=%s", (it["id"],))
+            it["pagas"] = sorted([r["k"] for r in cur.fetchall()])
+        n["itens"] = itens
+    cur.close(); db.close(); return notas
+
+@app.post("/api/anotacoes")
+def criar_anotacao(data: AnotacaoInput, user=Depends(verificar_token)):
+    titulo = (data.titulo or "").strip()
+    if not titulo:
+        raise HTTPException(status_code=400, detail="Informe o título")
+    db = get_db(); cur = db.cursor()
+    cur.execute("INSERT INTO anotacoes (user_id,titulo) VALUES (%s,%s)", (user["id"], titulo))
+    nid = cur.lastrowid; cur.close(); db.close(); return {"id": nid}
+
+@app.delete("/api/anotacoes/{nid}")
+def deletar_anotacao(nid: int, user=Depends(verificar_token)):
+    db = get_db(); cur = db.cursor()
+    cur.execute("DELETE FROM anotacoes WHERE id=%s AND user_id=%s", (nid, user["id"]))
+    cur.close(); db.close(); return {"ok": True}
+
+@app.post("/api/anotacoes/{nid}/itens")
+def criar_anotacao_item(nid: int, data: AnotacaoItemInput, user=Depends(verificar_token)):
+    import re
+    nome = (data.nome or "").strip()
+    if not nome:
+        raise HTTPException(status_code=400, detail="Informe o nome")
+    if not data.valor_total or data.valor_total <= 0:
+        raise HTTPException(status_code=400, detail="Valor inválido")
+    if not 1 <= (data.qtd or 0) <= 120:
+        raise HTTPException(status_code=400, detail="Parcelas de 1 a 120")
+    if not re.match(r"^\d{4}-\d{2}$", data.mes_ref or ""):
+        raise HTTPException(status_code=400, detail="Mês inválido (YYYY-MM)")
+    db = get_db(); cur = db.cursor(dictionary=True)
+    cur.execute("SELECT id FROM anotacoes WHERE id=%s AND user_id=%s", (nid, user["id"]))
+    if not cur.fetchone():
+        cur.close(); db.close(); raise HTTPException(status_code=403)
+    cur.execute("INSERT INTO anotacao_itens (anotacao_id,nome,valor_total,qtd,mes_ref) VALUES (%s,%s,%s,%s,%s)",
+        (nid, nome, data.valor_total, data.qtd, data.mes_ref))
+    iid = cur.lastrowid; cur.close(); db.close(); return {"id": iid}
+
+@app.delete("/api/anotacoes/itens/{iid}")
+def deletar_anotacao_item(iid: int, user=Depends(verificar_token)):
+    db = get_db(); cur = db.cursor()
+    cur.execute("""DELETE ai FROM anotacao_itens ai
+        JOIN anotacoes a ON ai.anotacao_id=a.id
+        WHERE ai.id=%s AND a.user_id=%s""", (iid, user["id"]))
+    cur.close(); db.close(); return {"ok": True}
+
+@app.post("/api/anotacoes/itens/{iid}/check")
+def alternar_anotacao_check(iid: int, data: AnotacaoCheckInput, user=Depends(verificar_token)):
+    db = get_db(); cur = db.cursor(dictionary=True)
+    cur.execute("""SELECT ai.qtd FROM anotacao_itens ai
+        JOIN anotacoes a ON ai.anotacao_id=a.id
+        WHERE ai.id=%s AND a.user_id=%s""", (iid, user["id"]))
+    row = cur.fetchone()
+    if not row:
+        cur.close(); db.close(); raise HTTPException(status_code=403)
+    if not 1 <= (data.k or 0) <= int(row["qtd"]):
+        cur.close(); db.close(); raise HTTPException(status_code=400, detail="Parcela inválida")
+    cur.execute("SELECT k FROM anotacao_checks WHERE item_id=%s AND k=%s", (iid, data.k))
+    if cur.fetchone():
+        cur.execute("DELETE FROM anotacao_checks WHERE item_id=%s AND k=%s", (iid, data.k))
+        pago = False
+    else:
+        cur.execute("INSERT INTO anotacao_checks (item_id,k) VALUES (%s,%s)", (iid, data.k))
+        pago = True
+    cur.close(); db.close(); return {"ok": True, "pago": pago}
+
 @app.on_event("startup")
 def garantir_tabela_historico():
     try:
@@ -507,6 +599,29 @@ def garantir_tabela_historico():
             FOREIGN KEY (user_id) REFERENCES usuarios(id) ON DELETE CASCADE
         )""")
         cur.execute("ALTER TABLE lancamentos ADD COLUMN IF NOT EXISTS tipo_ajuste VARCHAR(20) DEFAULT NULL")
+        cur.execute("""CREATE TABLE IF NOT EXISTS anotacoes (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            user_id INT NOT NULL,
+            titulo VARCHAR(100) NOT NULL,
+            criado_em DATETIME DEFAULT NOW(),
+            FOREIGN KEY (user_id) REFERENCES usuarios(id) ON DELETE CASCADE
+        )""")
+        cur.execute("""CREATE TABLE IF NOT EXISTS anotacao_itens (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            anotacao_id INT NOT NULL,
+            nome VARCHAR(100) NOT NULL,
+            valor_total DECIMAL(12,2) NOT NULL,
+            qtd INT NOT NULL,
+            mes_ref VARCHAR(7) NOT NULL,
+            FOREIGN KEY (anotacao_id) REFERENCES anotacoes(id) ON DELETE CASCADE
+        )""")
+        cur.execute("""CREATE TABLE IF NOT EXISTS anotacao_checks (
+            item_id INT NOT NULL,
+            k INT NOT NULL,
+            marcado_em DATETIME DEFAULT NOW(),
+            PRIMARY KEY (item_id, k),
+            FOREIGN KEY (item_id) REFERENCES anotacao_itens(id) ON DELETE CASCADE
+        )""")
         cur.close(); db.close()
     except Exception:
         pass
