@@ -24,6 +24,7 @@ Comandos:
   /ajuda           - mostra o formato de mensagem
   /comandos        - lista todos os comandos
   /lancar          - registro guiado (rapido ou parcelado, tudo em 1 mensagem)
+  /receber         - marcar cobrança como paga por botões (conta → pessoa → mês)
   /relatorio       - relatorio estilo WhatsApp (pergunta gasto fixo + mes)
   /relatorios      - relatorios rapidos do mes
   /cancelar        - cancela a conversa atual
@@ -339,6 +340,106 @@ def menu_relatorios():
         [{"text": "📅 Histórico", "callback_data": "rel_historico"}],
     ]
 
+# ── /RECEBER (A receber: conta → pessoa → mês, tudo por botão) ──
+# Fluxo sem digitar nada além do comando inicial:
+#   /receber → escolhe a conta (ex: Airbnb) → escolhe a pessoa →
+#   escolhe o mês → marca/desmarca como pago.
+def rec_mes_label(mes_ref, k):
+    """'2026-01' + k(1-based) -> 'jan/26'."""
+    try:
+        y, m = map(int, mes_ref.split("-"))
+        tot = (y * 12 + m - 1) + (k - 1)
+        ano, mes = tot // 12, tot % 12 + 1
+        nomes = ["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"]
+        return f"{nomes[mes-1]}/{str(ano)[2:]}"
+    except Exception:
+        return f"m{k}"
+
+def rec_buscar_contas(user_id):
+    db = get_db(); cur = db.cursor(dictionary=True)
+    cur.execute("SELECT id, titulo FROM anotacoes WHERE user_id=%s ORDER BY criado_em DESC", (user_id,))
+    rows = cur.fetchall(); cur.close(); db.close()
+    return rows
+
+def rec_buscar_item(user_id, item_id):
+    """Retorna (conta, item, pagas:set, valores:dict) ou (None,...) se não for do usuário."""
+    db = get_db(); cur = db.cursor(dictionary=True)
+    cur.execute("""SELECT ai.id, ai.anotacao_id, ai.nome, ai.valor_total, ai.qtd, ai.mes_ref, a.titulo
+        FROM anotacao_itens ai JOIN anotacoes a ON ai.anotacao_id=a.id
+        WHERE ai.id=%s AND a.user_id=%s""", (item_id, user_id))
+    item = cur.fetchone()
+    if not item:
+        cur.close(); db.close()
+        return None, None, set(), {}
+    cur.execute("SELECT k FROM anotacao_checks WHERE item_id=%s", (item_id,))
+    pagas = set(r["k"] for r in cur.fetchall())
+    try:
+        cur.execute("SELECT k, valor FROM anotacao_valores WHERE item_id=%s", (item_id,))
+        valores = {int(r["k"]): round(float(r["valor"] or 0), 2) for r in cur.fetchall()}
+    except Exception:
+        valores = {}
+    cur.close(); db.close()
+    return item, item, pagas, valores
+
+def rec_valor_parc(item, valores, k):
+    v = valores.get(k)
+    if v is not None and v > 0:
+        return v
+    qtd = int(item["qtd"] or 0)
+    if qtd > 0:
+        return round(float(item["valor_total"] or 0) / qtd, 2)
+    return 0.0
+
+def rec_fbr(v):
+    return f"{float(v):.2f}".replace(".", ",")
+
+def teclado_rec_contas(user_id):
+    contas = rec_buscar_contas(user_id)
+    tecl = []
+    for c in contas:
+        tecl.append([{"text": f"💰 {c['titulo'][:30]}", "callback_data": f"recv_{c['id']}"}])
+    return tecl
+
+def teclado_rec_pessoas(user_id, conta_id):
+    db = get_db(); cur = db.cursor(dictionary=True)
+    cur.execute("""SELECT ai.id, ai.nome, ai.qtd FROM anotacao_itens ai
+        JOIN anotacoes a ON ai.anotacao_id=a.id
+        WHERE ai.anotacao_id=%s AND a.user_id=%s ORDER BY ai.id""", (conta_id, user_id))
+    itens = cur.fetchall()
+    pend_map = {}
+    for it in itens:
+        cur.execute("SELECT COUNT(*) AS n FROM anotacao_checks WHERE item_id=%s", (it["id"],))
+        n = (cur.fetchone() or {}).get("n", 0) or 0
+        pend_map[it["id"]] = (int(it["qtd"] or 0) - int(n))
+    cur.close(); db.close()
+    tecl = []
+    for it in itens:
+        pend = pend_map.get(it["id"], 0)
+        marca = "✅" if pend <= 0 else "⭕"
+        tecl.append([{"text": f"{marca} {it['nome'][:28]}", "callback_data": f"recp_{it['id']}"}])
+    return tecl
+
+def teclado_rec_meses(item, pagas, valores):
+    tecl = []
+    linha = []
+    for k in range(1, int(item["qtd"] or 0) + 1):
+        marca = "✅" if k in pagas else "⭕"
+        texto = f"{marca} {rec_mes_label(item['mes_ref'], k)} R${rec_fbr(rec_valor_parc(item, valores, k))}"
+        linha.append({"text": texto[:60], "callback_data": f"recm_{item['id']}_{k}"})
+        if len(linha) == 2:
+            tecl.append(linha); linha = []
+    if linha:
+        tecl.append(linha)
+    return tecl
+
+def rec_texto_meses(item, pagas, valores):
+    qtd = int(item["qtd"] or 0)
+    pagas_n = len([k for k in range(1, qtd + 1) if k in pagas])
+    em_aberto = sum(rec_valor_parc(item, valores, k) for k in range(1, qtd + 1) if k not in pagas)
+    return (f"👤 *{limpar_md(item['nome'])}* — {limpar_md(item.get('titulo') or '')}\n"
+            f"{pagas_n}/{qtd} pagos · falta R$ {rec_fbr(em_aberto)}\n"
+            f"Toque no mês p/ marcar/desmarcar:")
+
 # ── /LANCAR GUIADO (conversa por etapas) ──
 CONVERSA_TIMEOUT = 15 * 60  # 15 min sem resposta = expira
 conversas = {}  # chat_id -> {"tipo", "etapa", "dados", "inicio"}
@@ -579,6 +680,56 @@ def processar_callback(chat_id, callback_data):
     user = buscar_usuario_por_chat(chat_id)
     if not user:
         return "⚠️ Você não está vinculado a nenhuma conta."
+    # ── /receber: conta → pessoa → mês ──
+    if callback_data.startswith("recv_"):
+        try:
+            nid = int(callback_data.split("_", 1)[1])
+        except Exception:
+            return "❌ Opção inválida."
+        db = get_db(); cur = db.cursor(dictionary=True)
+        cur.execute("SELECT id, titulo FROM anotacoes WHERE id=%s AND user_id=%s", (nid, user["id"]))
+        conta = cur.fetchone(); cur.close(); db.close()
+        if not conta:
+            return "❌ Conta não encontrada."
+        tecl = teclado_rec_pessoas(user["id"], nid)
+        if not tecl:
+            return f"💰 *{limpar_md(conta['titulo'])}*\nSem pessoas ainda. Adicione no site primeiro."
+        return (f"💰 *{limpar_md(conta['titulo'])}*\nQuem?", tecl)
+    if callback_data.startswith("recp_"):
+        try:
+            iid = int(callback_data.split("_", 1)[1])
+        except Exception:
+            return "❌ Opção inválida."
+        _, item, pagas, valores = rec_buscar_item(user["id"], iid)
+        if not item:
+            return "❌ Pessoa não encontrada."
+        return (rec_texto_meses(item, pagas, valores), teclado_rec_meses(item, pagas, valores))
+    if callback_data.startswith("recm_"):
+        try:
+            _, iid_s, k_s = callback_data.split("_")
+            iid, k = int(iid_s), int(k_s)
+        except Exception:
+            return "❌ Opção inválida."
+        _, item, pagas, valores = rec_buscar_item(user["id"], iid)
+        if not item:
+            return "❌ Pessoa não encontrada."
+        if not 1 <= k <= int(item["qtd"] or 0):
+            return "❌ Mês inválido."
+        db = get_db(); cur = db.cursor()
+        cur.execute("SELECT k FROM anotacao_checks WHERE item_id=%s AND k=%s", (iid, k))
+        if cur.fetchone():
+            cur.execute("DELETE FROM anotacao_checks WHERE item_id=%s AND k=%s", (iid, k))
+            pago = False
+        else:
+            cur.execute("INSERT INTO anotacao_checks (item_id,k) VALUES (%s,%s)", (iid, k))
+            pago = True
+        cur.close(); db.close()
+        _, item, pagas, valores = rec_buscar_item(user["id"], iid)
+        v = rec_valor_parc(item, valores, k)
+        status = "Pago ✅" if pago else "Desmarcado ⭕"
+        texto = (f"{'✅' if pago else '⭕'} *{limpar_md(item['nome'])}* — {rec_mes_label(item['mes_ref'], k)} "
+                 f"(R$ {rec_fbr(v)}): *{status}*\n\n" + rec_texto_meses(item, pagas, valores))
+        return (texto, teclado_rec_meses(item, pagas, valores))
     if callback_data.startswith("relg_"):
         try:
             gid = int(callback_data.split("_", 1)[1])
@@ -673,12 +824,23 @@ def processar_mensagem(chat_id, texto):
     if texto.startswith("/comandos"):
         return ("⌨️ *Comandos:*\n"
                 "/lancar — registro guiado (rápido ou parcelado)\n"
+                "/receber — marcar cobrança como paga (só botões)\n"
                 "/relatorio — relatório estilo WhatsApp (pergunta gasto + mês)\n"
                 "/relatorios — relatórios rápidos do mês\n"
                 "/ajuda — formato da mensagem direta\n"
                 "/cancelar — cancela a conversa atual\n"
                 "/vincular 123456 — vincula tua conta\n"
                 "/desvincular — desvincula")
+
+    if texto == "/receber" or texto.startswith("/receber ") or texto == "/cobrar" or texto.startswith("/cobrar "):
+        user = buscar_usuario_por_chat(chat_id)
+        if not user:
+            return ("⚠️ Você ainda não está vinculado a nenhuma conta.\n"
+                    "Vá em Configurações no site, gere um código, e me envie:\n`/vincular 123456`")
+        tecl = teclado_rec_contas(user["id"])
+        if not tecl:
+            return "💰 Nenhuma conta a receber ainda. Crie uma no site (ex: Airbnb)."
+        return ("💰 *Qual conta?*", tecl)
 
     if texto == "/relatorio" or texto.startswith("/relatorio "):
         user = buscar_usuario_por_chat(chat_id)
