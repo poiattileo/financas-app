@@ -149,6 +149,10 @@ class AnotacaoItemInput(BaseModel):
 class AnotacaoCheckInput(BaseModel):
     k: int  # 1..qtd (número da parcela)
 
+class AnotacaoValorInput(BaseModel):
+    k: int  # 1..qtd
+    valor: float  # valor daquela parcela/mês (>0 customiza, 0 remove override)
+
 # ── AUTH ──
 @app.post("/api/login")
 def login(data: LoginInput):
@@ -498,7 +502,9 @@ def reabrir_mes(hid: int, user=Depends(verificar_token)):
     cur.execute("DELETE FROM historico_meses WHERE id=%s AND user_id=%s", (hid, user["id"]))
     cur.close(); db.close(); return {"ok": True}
 
-# ── ANOTAÇÕES (controle paralelo: não entra em nenhum total) ──
+# ── ANOTAÇÕES / A RECEBER (controle paralelo: NÃO entra em nenhum total) ──
+# Isolado por design: nenhum endpoint aqui é lido por /api/comparativo,
+# cálculo de sobra, resumo ou historico. É só lembrete de cobrança.
 @app.get("/api/anotacoes")
 def listar_anotacoes(user=Depends(verificar_token)):
     db = get_db(); cur = db.cursor(dictionary=True)
@@ -512,6 +518,11 @@ def listar_anotacoes(user=Depends(verificar_token)):
             it["valor_total"] = float(it["valor_total"] or 0)
             cur.execute("SELECT k FROM anotacao_checks WHERE item_id=%s", (it["id"],))
             it["pagas"] = sorted([r["k"] for r in cur.fetchall()])
+            try:
+                cur.execute("SELECT k, valor FROM anotacao_valores WHERE item_id=%s", (it["id"],))
+                it["valores"] = {str(r["k"]): float(r["valor"] or 0) for r in cur.fetchall()}
+            except Exception:
+                it["valores"] = {}
         n["itens"] = itens
     cur.close(); db.close(); return notas
 
@@ -523,6 +534,15 @@ def criar_anotacao(data: AnotacaoInput, user=Depends(verificar_token)):
     db = get_db(); cur = db.cursor()
     cur.execute("INSERT INTO anotacoes (user_id,titulo) VALUES (%s,%s)", (user["id"], titulo))
     nid = cur.lastrowid; cur.close(); db.close(); return {"id": nid}
+
+@app.put("/api/anotacoes/{nid}")
+def renomear_anotacao(nid: int, data: AnotacaoInput, user=Depends(verificar_token)):
+    titulo = (data.titulo or "").strip()
+    if not titulo:
+        raise HTTPException(status_code=400, detail="Informe o título")
+    db = get_db(); cur = db.cursor()
+    cur.execute("UPDATE anotacoes SET titulo=%s WHERE id=%s AND user_id=%s", (titulo, nid, user["id"]))
+    cur.close(); db.close(); return {"ok": True}
 
 @app.delete("/api/anotacoes/{nid}")
 def deletar_anotacao(nid: int, user=Depends(verificar_token)):
@@ -550,12 +570,55 @@ def criar_anotacao_item(nid: int, data: AnotacaoItemInput, user=Depends(verifica
         (nid, nome, data.valor_total, data.qtd, data.mes_ref))
     iid = cur.lastrowid; cur.close(); db.close(); return {"id": iid}
 
+@app.put("/api/anotacoes/itens/{iid}")
+def editar_anotacao_item(iid: int, data: AnotacaoItemInput, user=Depends(verificar_token)):
+    import re
+    nome = (data.nome or "").strip()
+    if not nome:
+        raise HTTPException(status_code=400, detail="Informe o nome")
+    if not data.valor_total or data.valor_total <= 0:
+        raise HTTPException(status_code=400, detail="Valor inválido")
+    if not 1 <= (data.qtd or 0) <= 120:
+        raise HTTPException(status_code=400, detail="Parcelas de 1 a 120")
+    if not re.match(r"^\d{4}-\d{2}$", data.mes_ref or ""):
+        raise HTTPException(status_code=400, detail="Mês inválido (YYYY-MM)")
+    db = get_db(); cur = db.cursor()
+    cur.execute("""UPDATE anotacao_itens ai
+        JOIN anotacoes a ON ai.anotacao_id=a.id
+        SET ai.nome=%s, ai.valor_total=%s, ai.qtd=%s, ai.mes_ref=%s
+        WHERE ai.id=%s AND a.user_id=%s""",
+        (nome, data.valor_total, data.qtd, data.mes_ref, iid, user["id"]))
+    # limpa checks e valores fora do novo intervalo
+    cur.execute("DELETE FROM anotacao_checks WHERE item_id=%s AND k>%s", (iid, data.qtd))
+    cur.execute("DELETE FROM anotacao_valores WHERE item_id=%s AND k>%s", (iid, data.qtd))
+    cur.close(); db.close(); return {"ok": True}
+
 @app.delete("/api/anotacoes/itens/{iid}")
 def deletar_anotacao_item(iid: int, user=Depends(verificar_token)):
     db = get_db(); cur = db.cursor()
     cur.execute("""DELETE ai FROM anotacao_itens ai
         JOIN anotacoes a ON ai.anotacao_id=a.id
         WHERE ai.id=%s AND a.user_id=%s""", (iid, user["id"]))
+    cur.close(); db.close(); return {"ok": True}
+
+@app.post("/api/anotacoes/itens/{iid}/valor")
+def definir_valor_parcela(iid: int, data: AnotacaoValorInput, user=Depends(verificar_token)):
+    """Valor customizado de um mês específico (ex: Airbnb variando por mês).
+    valor<=0 remove o override e volta ao valor dividido."""
+    db = get_db(); cur = db.cursor(dictionary=True)
+    cur.execute("""SELECT ai.qtd FROM anotacao_itens ai
+        JOIN anotacoes a ON ai.anotacao_id=a.id
+        WHERE ai.id=%s AND a.user_id=%s""", (iid, user["id"]))
+    row = cur.fetchone()
+    if not row:
+        cur.close(); db.close(); raise HTTPException(status_code=403)
+    if not 1 <= (data.k or 0) <= int(row["qtd"]):
+        cur.close(); db.close(); raise HTTPException(status_code=400, detail="Parcela inválida")
+    if data.valor and data.valor > 0:
+        cur.execute("INSERT INTO anotacao_valores (item_id,k,valor) VALUES (%s,%s,%s) ON DUPLICATE KEY UPDATE valor=%s",
+            (iid, data.k, data.valor, data.valor))
+    else:
+        cur.execute("DELETE FROM anotacao_valores WHERE item_id=%s AND k=%s", (iid, data.k))
     cur.close(); db.close(); return {"ok": True}
 
 @app.post("/api/anotacoes/itens/{iid}/check")
@@ -619,6 +682,13 @@ def garantir_tabela_historico():
             item_id INT NOT NULL,
             k INT NOT NULL,
             marcado_em DATETIME DEFAULT NOW(),
+            PRIMARY KEY (item_id, k),
+            FOREIGN KEY (item_id) REFERENCES anotacao_itens(id) ON DELETE CASCADE
+        )""")
+        cur.execute("""CREATE TABLE IF NOT EXISTS anotacao_valores (
+            item_id INT NOT NULL,
+            k INT NOT NULL,
+            valor DECIMAL(12,2) NOT NULL,
             PRIMARY KEY (item_id, k),
             FOREIGN KEY (item_id) REFERENCES anotacao_itens(id) ON DELETE CASCADE
         )""")

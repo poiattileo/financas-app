@@ -139,3 +139,13 @@ CREATE TABLE IF NOT EXISTS anotacao_checks (
     PRIMARY KEY (item_id, k),
     FOREIGN KEY (item_id) REFERENCES anotacao_itens(id) ON DELETE CASCADE
 );
+
+-- Valores customizados por mês (ex: Airbnb varia). Se não houver override,
+-- vale valor_total/qtd. Nunca entra em totais: só lembrete de cobrança.
+CREATE TABLE IF NOT EXISTS anotacao_valores (
+    item_id INT NOT NULL,
+    k INT NOT NULL,
+    valor DECIMAL(12,2) NOT NULL,
+    PRIMARY KEY (item_id, k),
+    FOREIGN KEY (item_id) REFERENCES anotacao_itens(id) ON DELETE CASCADE
+);

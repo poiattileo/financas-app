@@ -536,6 +536,31 @@ input[type=number]{-moz-appearance:textfield}
 .anot-del{background:none;border:none;color:var(--hint);cursor:pointer;font-size:12px;padding:4px;border-radius:4px}
 .anot-del:hover{color:var(--red)}
 
+/* A RECEBER (cobranças — não entra em totais) */
+.rec-resumo{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:.75rem}
+.rec-card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:.7rem .9rem;box-shadow:var(--shadow)}
+.rec-label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
+.rec-val{font-family:var(--mono);font-size:16px;font-weight:700;margin-top:2px}
+.rec-val.g{color:var(--green)}.rec-val.r{color:var(--amber)}.rec-val.b{color:var(--blue)}
+.rec-sub{font-size:10px;color:var(--hint);margin-top:1px}
+.rec-filtro{display:flex;gap:6px;align-items:center;margin-bottom:.75rem;flex-wrap:wrap}
+.rec-toggle{padding:5px 12px;border-radius:20px;border:1px solid var(--border);background:var(--surface);color:var(--muted);font-size:11px;cursor:pointer;font-family:'Inter',sans-serif;transition:.15s}
+.rec-toggle.active{background:var(--amber-bg);border-color:var(--amber);color:var(--amber)}
+.anot-chip.atrasado{border-color:var(--red);color:var(--red)}
+.anot-chip.pago{opacity:.85}
+.anot-valor{font-family:var(--mono);font-size:10px;opacity:.8}
+.rec-cobrar{background:var(--green-bg);border:1px solid rgba(34,197,94,.3);color:var(--green);border-radius:6px;font-size:11px;font-weight:600;padding:4px 10px;cursor:pointer;font-family:'Inter',sans-serif;transition:.15s}
+.rec-cobrar:hover{background:rgba(34,197,94,.2)}
+.rec-edit{background:none;border:1px solid var(--border);border-radius:6px;color:var(--muted);font-size:11px;padding:3px 8px;cursor:pointer;font-family:'Inter',sans-serif}
+.rec-edit:hover{color:var(--text);border-color:var(--border2)}
+.rec-mes-row{display:grid;grid-template-columns:1fr 110px 40px;gap:6px;align-items:center;padding:5px 0;border-bottom:1px solid var(--border)}
+.rec-mes-row:last-child{border-bottom:none}
+.rec-mes-nome{font-size:12px}
+.rec-mes-nome small{color:var(--hint);display:block;font-size:10px}
+.rec-mes-row input{background:var(--input-bg);border:1px solid var(--border);border-radius:6px;padding:6px 8px;color:var(--text);font-size:13px;font-family:var(--mono);width:100%;outline:none;text-align:right}
+.rec-mes-row input:focus{border-color:var(--green)}
+.rec-mes-ok{background:none;border:none;cursor:pointer;font-size:14px}
+
 /* LIGHTBOX */
 .lightbox{position:fixed;inset:0;background:rgba(0,0,0,.9);z-index:300;display:none;align-items:center;justify-content:center;padding:1rem}
 .lightbox.open{display:flex}
@@ -617,7 +642,9 @@ input[type=number]{-moz-appearance:textfield}
     </div>
     <div class="page" id="tab-historico"><div class="hist-wrap" id="hist-wrap"></div></div>
     <div class="page" id="tab-anotacoes">
-      <div class="toolbar"><button class="btn btn-primary" onclick="openModalAnotacao()">+ Nova anotação</button></div>
+      <div class="toolbar">
+        <button class="btn btn-primary" onclick="openModalAnotacao()">+ Nova conta (ex: Airbnb)</button>
+      </div>
       <div class="anot-wrap" id="anot-wrap"></div>
     </div>
     <div class="page" id="tab-resumo">
@@ -786,7 +813,7 @@ input[type=number]{-moz-appearance:textfield}
       <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>Histórico
     </button>
     <button class="bn-item" onclick="goTab('anotacoes')" id="bn-anotacoes">
-      <svg viewBox="0 0 24 24"><path d="M17 3a2.83 2.83 0 0 1 4 4L7.5 20.5 2 22l1.5-5.5z"/></svg>Notas
+      <svg viewBox="0 0 24 24"><path d="M17 3a2.83 2.83 0 0 1 4 4L7.5 20.5 2 22l1.5-5.5z"/></svg>A receber
     </button>
     <button class="bn-item" onclick="goTab('resumo')" id="bn-resumo">
       <svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>Resumo
@@ -1063,8 +1090,9 @@ input[type=number]{-moz-appearance:textfield}
 <div class="overlay" id="ov-anotacao" onclick="closeOvOutside(event,'ov-anotacao')">
   <div class="modal" style="max-width:380px">
     <span class="modal-drag"></span>
-    <h3>📝 Nova anotação</h3>
-    <div class="field"><label>Título (ex: AirBNB)</label><input id="an-titulo" placeholder="Ex: AirBNB..." onkeydown="if(event.key==='Enter')addAnotacao()"></div>
+    <h3>💰 Nova conta a receber</h3>
+    <div class="info-box">Não entra em nenhum total. É só um lembrete de cobrança (ex: Airbnb).</div>
+    <div class="field"><label>Título (ex: Airbnb)</label><input id="an-titulo" placeholder="Ex: Airbnb..." onkeydown="if(event.key==='Enter')addAnotacao()"></div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeOv('ov-anotacao')">Cancelar</button>
       <button class="btn btn-primary" onclick="addAnotacao()">Criar</button>
@@ -1077,15 +1105,38 @@ input[type=number]{-moz-appearance:textfield}
   <div class="modal" style="max-width:380px">
     <span class="modal-drag"></span>
     <h3 id="ai-titulo">＋ Pessoa</h3>
+    <div class="info-box">Se os meses têm valores diferentes, lance o total e depois ajuste mês a mês em ✏️.</div>
     <div class="field"><label>Nome</label><input id="ai-nome" placeholder="Ex: Fulano..."></div>
     <div class="field-row">
       <div class="field"><label>Valor total (R$)</label><input id="ai-valor" type="number" placeholder="0,00" step="0.01" inputmode="decimal"></div>
-      <div class="field"><label>Parcelas</label><input id="ai-qtd" type="number" placeholder="12" min="1" max="120" inputmode="numeric"></div>
+      <div class="field"><label>Meses</label><input id="ai-qtd" type="number" placeholder="1" min="1" max="120" inputmode="numeric"></div>
     </div>
-    <div class="field"><label>Mês da 1ª parcela</label><input type="month" id="ai-mes"></div>
+    <div class="field"><label>Mês da 1ª cobrança</label><input type="month" id="ai-mes"></div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeOv('ov-anotacao-item')">Cancelar</button>
       <button class="btn btn-primary" onclick="addAnotacaoItem()">Adicionar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL EDITAR PESSOA + VALORES POR MÊS -->
+<div class="overlay" id="ov-anotacao-editar" onclick="closeOvOutside(event,'ov-anotacao-editar')">
+  <div class="modal" style="max-width:420px">
+    <span class="modal-drag"></span>
+    <h3 id="ae-titulo">✏️ Editar pessoa</h3>
+    <div class="field"><label>Nome</label><input id="ae-nome" placeholder="Ex: Fulano..."></div>
+    <div class="field-row">
+      <div class="field"><label>Valor total (R$)</label><input id="ae-valor" type="number" placeholder="0,00" step="0.01" inputmode="decimal"></div>
+      <div class="field"><label>Meses</label><input id="ae-qtd" type="number" min="1" max="120" inputmode="numeric" oninput="desenharMesesEdicao()"></div>
+    </div>
+    <div class="field"><label>Mês da 1ª cobrança</label><input type="month" id="ae-mes" onchange="desenharMesesEdicao()"></div>
+    <div class="field"><label>Valores por mês (opcional — ex: Airbnb varia)</label>
+      <div id="ae-meses" style="background:var(--input-bg);border:1px solid var(--border);border-radius:7px;padding:4px 10px;max-height:220px;overflow-y:auto"></div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">Altere o valor do mês e clique em ✓. Apague para voltar ao valor dividido.</div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeOv('ov-anotacao-editar')">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarEdicaoItem()">Salvar</button>
     </div>
   </div>
 </div>
@@ -2060,8 +2111,8 @@ function renderMetas(){
   }).join('');
 }
 
-// ── ANOTAÇÕES (controle paralelo: não entra em nenhum total) ──
-let anotacoes=[],anotacaoAlvo=null;
+// ── A RECEBER / COBRANÇAS (paralelo: NÃO entra em nenhum total) ──
+let anotacoes=[],anotacaoAlvo=null,itemEditId=null,soEmAberto=false;
 
 function mesRefAdd(ref,k){
   const[y,m]=ref.split('-').map(Number);
@@ -2069,56 +2120,124 @@ function mesRefAdd(ref,k){
   const curto=d.toLocaleString('pt-BR',{month:'short'}).replace('.','');
   return `${curto}/${String(d.getFullYear()).slice(2)}`;
 }
+function mesRefAbs(ref,k){
+  const[y,m]=ref.split('-').map(Number);
+  const d=new Date(y,m-1+k,1);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+}
 function vpItem(it){return it.qtd>0?round2(it.valor_total/it.qtd):0;}
+function valorParc(it,k){
+  const ov=it.valores&&(it.valores[String(k)]??it.valores[k]);
+  if(ov!==undefined&&ov!==null&&Number(ov)>0) return round2(Number(ov));
+  return vpItem(it);
+}
+function totalItemEfetivo(it){
+  let s=0;
+  for(let k=1;k<=(it.qtd||0);k++) s+=valorParc(it,k);
+  return round2(s);
+}
+function mesAtualRef(){
+  const n=new Date();
+  return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}`;
+}
+function ehAtrasado(it,k,pago){
+  if(pago) return false;
+  return mesRefAbs(it.mes_ref,k-1)<mesAtualRef();
+}
+function esc(s){return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 
 async function renderAnotacoes(){
   const wrap=document.getElementById('anot-wrap');
   wrap.innerHTML='<div class="loading"><div class="spinner"></div>Carregando...</div>';
   try{anotacoes=await api('GET','/anotacoes');}catch(e){anotacoes=[];}
-  if(!anotacoes.length){wrap.innerHTML='<div class="anot-empty">Nenhuma anotação ainda.<br>Crie uma (ex: AirBNB) e adicione as pessoas.</div>';return;}
-  wrap.innerHTML=anotacoes.map((n,ni)=>{
+  if(!anotacoes.length){wrap.innerHTML='<div class="anot-empty">Nenhuma conta a receber ainda.<br>Crie uma (ex: Airbnb) e adicione as pessoas.</div>';return;}
+  // Resumo geral (só lembrete — não soma em salário/totais)
+  let gTot=0,gPago=0,gAberto=0,gAtras=0,gAtrasVal=0;
+  anotacoes.forEach(n=>(n.itens||[]).forEach(it=>{
+    const pagas=new Set(it.pagas||[]);
+    for(let k=1;k<=(it.qtd||0);k++){
+      const v=valorParc(it,k);
+      gTot=round2(gTot+v);
+      if(pagas.has(k)) gPago=round2(gPago+v);
+      else{
+        gAberto=round2(gAberto+v);
+        if(ehAtrasado(it,k,false)){gAtras++;gAtrasVal=round2(gAtrasVal+v);}
+      }
+    }
+  }));
+  const itensVis=n=>soEmAberto?(n.itens||[]).filter(it=>(it.pagas||[]).length<(it.qtd||0)): (n.itens||[]);
+  wrap.innerHTML=`
+    <div class="rec-resumo fade-in">
+      <div class="rec-card"><div class="rec-label">Em aberto</div><div class="rec-val r">${fmt(gAberto)}</div><div class="rec-sub">${gAtras?`⚠ ${gAtras} atrasada(s) · ${fmt(gAtrasVal)}`: 'tudo em dia ✓'}</div></div>
+      <div class="rec-card"><div class="rec-label">Recebido</div><div class="rec-val g">${fmt(gPago)}</div><div class="rec-sub">marcados ✓</div></div>
+      <div class="rec-card"><div class="rec-label">Total</div><div class="rec-val b">${fmt(gTot)}</div><div class="rec-sub">lembrete · fora dos totais</div></div>
+    </div>
+    <div class="rec-filtro">
+      <button class="rec-toggle${soEmAberto?' active':''}" onclick="toggleSoAbertos()">${soEmAberto?'👁 Só em aberto ✓':'👁 Mostrar tudo'}</button>
+      <span style="font-size:11px;color:var(--hint)">Toque no mês p/ marcar pago · ✏️ ajusta valores por mês · 💬 cobra no WhatsApp</span>
+    </div>
+  `+anotacoes.map((n,ni)=>{
+    const vis=itensVis(n);
     const totPrev=n.itens.reduce((s,it)=>s+(it.qtd||0),0);
     const totPagas=n.itens.reduce((s,it)=>s+((it.pagas||[]).length),0);
-    const totValor=n.itens.reduce((s,it)=>s+(round2(it.valor_total)||0),0);
-    const itensHtml=n.itens.length?n.itens.map(it=>{
-      const vp=vpItem(it),pagas=new Set(it.pagas||[]);
+    const totValor=n.itens.reduce((s,it)=>s+totalItemEfetivo(it),0);
+    const totAberto=n.itens.reduce((s,it)=>{
+      const pagas=new Set(it.pagas||[]);
+      for(let k=1;k<=(it.qtd||0);k++) if(!pagas.has(k)) s+=valorParc(it,k);
+      return round2(s);
+    },0);
+    const itensHtml=vis.length?vis.map(it=>{
+      const pagas=new Set(it.pagas||[]);
       const chips=Array.from({length:it.qtd},(_,j)=>{
-        const k=j+1,on=pagas.has(k);
-        return `<button class="anot-chip${on?' pago':''}" onclick="toggleCheck(${it.id},${k})" title="${on?'Pago — clique p/ desmarcar':'Em aberto — clique p/ marcar'}">${on?'✓ ':''}${k}/${it.qtd} <small>${mesRefAdd(it.mes_ref,j)}</small></button>`;
+        const k=j+1,on=pagas.has(k),v=valorParc(it,k),atr=ehAtrasado(it,k,on);
+        return `<button class="anot-chip${on?' pago':''}${atr?' atrasado':''}" onclick="toggleCheck(${it.id},${k})" title="${on?'Pago — clique p/ desmarcar':atr?'ATRASADO — clique p/ marcar pago':'Em aberto — clique p/ marcar'}">${on?'✓ ':atr?'⚠ ':''}${mesRefAdd(it.mes_ref,j)} <span class="anot-valor">${fmt(v)}</span></button>`;
       }).join('');
+      const aberto=round2(totalItemEfetivo(it)-[...pagas].reduce((s,k)=>s+valorParc(it,k),0));
+      const temAtraso=Array.from({length:it.qtd},(_,j)=>j+1).some(k=>ehAtrasado(it,k,pagas.has(k)));
       return `<div class="anot-item">
         <div class="anot-item-top">
-          <div><div class="anot-nome">${it.nome}</div>
-          <div class="anot-sub">${fmt(it.valor_total)} total · ${it.qtd}x de ${fmt(vp)} · desde ${mesRefAdd(it.mes_ref,0)}</div></div>
-          <div style="display:flex;align-items:center;gap:6px">
+          <div><div class="anot-nome">${esc(it.nome)}${temAtraso?' <span style="font-size:10px;color:var(--red)">⚠ atrasado</span>':''}</div>
+          <div class="anot-sub">${fmt(totalItemEfetivo(it))} total · ${it.qtd}x desde ${mesRefAdd(it.mes_ref,0)} · falta ${fmt(aberto)}</div></div>
+          <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
             <span class="anot-progress">${pagas.size}/${it.qtd} ✓</span>
+            <button class="rec-cobrar" onclick="cobrarPessoa(${it.id})" title="Cobrar no WhatsApp">💬</button>
+            <button class="rec-edit" onclick="openEditarItem(${it.id})" title="Editar valores">✏️</button>
             <button class="anot-del" onclick="delAnotacaoItem(${it.id})" title="Remover">✕</button>
           </div>
         </div>
         <div class="anot-chips">${chips}</div>
       </div>`;
-    }).join(''):'<div style="font-size:12px;color:var(--hint);padding:.4rem 0">Sem pessoas ainda. Clique em + Pessoa.</div>';
+    }).join(''):(n.itens.length?'<div style="font-size:12px;color:var(--hint);padding:.4rem 0">Nada em aberto aqui. 🎉</div>':'<div style="font-size:12px;color:var(--hint);padding:.4rem 0">Sem pessoas ainda. Clique em + Pessoa.</div>');
     return `<div class="anot-card fade-in" style="animation-delay:${ni*0.05}s">
       <div class="anot-head">
-        <span class="anot-titulo">📝 ${n.titulo}</span>
+        <span class="anot-titulo">💰 ${esc(n.titulo)}</span>
         <div style="display:flex;gap:6px;align-items:center">
           <button class="btn btn-primary" onclick="openModalAnotacaoItem(${n.id})" style="font-size:11px;padding:4px 10px">+ Pessoa</button>
-          <button class="anot-del" onclick="delAnotacao(${n.id})" title="Apagar anotação">✕</button>
+          <button class="rec-edit" onclick="renomearAnotacao(${n.id},'${esc(n.titulo).replace(/'/g,"\\'")}')" title="Renomear">✏️</button>
+          <button class="anot-del" onclick="delAnotacao(${n.id})" title="Apagar conta">✕</button>
         </div>
       </div>
-      <div class="anot-resumo">${n.itens.length} pessoa(s) · ${totPagas}/${totPrev} parcelas pagas · ${fmt(totValor)} total</div>
+      <div class="anot-resumo">${n.itens.length} pessoa(s) · ${totPagas}/${totPrev} pagas · ${fmt(totValor)} total · falta ${fmt(totAberto)}</div>
       ${itensHtml}
     </div>`;
   }).join('');
 }
+function toggleSoAbertos(){soEmAberto=!soEmAberto;renderAnotacoes();}
 
 function openModalAnotacao(){document.getElementById('an-titulo').value='';openOv('ov-anotacao');setTimeout(()=>document.getElementById('an-titulo').focus(),80);}
 async function addAnotacao(){
   const t=document.getElementById('an-titulo').value.trim();
-  if(!t){toast('Dê um título','err');return;}
-  try{await api('POST','/anotacoes',{titulo:t});closeOv('ov-anotacao');renderAnotacoes();toast('Anotação criada!');}catch(e){toast('Erro: '+e.message,false);}
+  if(!t){toast('Dê um título (ex: Airbnb)','err');return;}
+  try{await api('POST','/anotacoes',{titulo:t});closeOv('ov-anotacao');renderAnotacoes();toast('Conta criada!');}catch(e){toast('Erro: '+e.message,false);}
 }
-async function delAnotacao(id){if(!confirm('Apagar esta anotação e tudo dentro?'))return;try{await api('DELETE',`/anotacoes/${id}`);renderAnotacoes();toast('Apagada');}catch(e){toast('Erro',false);}}
+async function renomearAnotacao(id,atual){
+  const t=prompt('Renomear conta:',atual||'');
+  if(t===null) return;
+  const v=t.trim();
+  if(!v){toast('Título vazio','err');return;}
+  try{await api('PUT',`/anotacoes/${id}`,{titulo:v});renderAnotacoes();toast('Renomeada!');}catch(e){toast('Erro: '+e.message,false);}
+}
+async function delAnotacao(id){if(!confirm('Apagar esta conta e tudo dentro?'))return;try{await api('DELETE',`/anotacoes/${id}`);renderAnotacoes();toast('Apagada');}catch(e){toast('Erro',false);}}
 function openModalAnotacaoItem(nid){
   anotacaoAlvo=nid;
   const n=anotacoes.find(x=>x.id===nid);
@@ -2143,6 +2262,82 @@ async function toggleCheck(iid,k){
     toast(r.pago?'Pago ✓':'Desmarcado');
     renderAnotacoes();
   }catch(e){toast('Erro: '+e.message,false);}
+}
+function acharItem(iid){
+  for(const n of anotacoes) for(const it of (n.itens||[])) if(it.id===iid) return {n,it};
+  return {};
+}
+function openEditarItem(iid){
+  const {n,it}=acharItem(iid);
+  if(!it) return;
+  itemEditId=iid;
+  document.getElementById('ae-titulo').textContent=`✏️ ${it.nome} em: ${n?.titulo||''}`;
+  document.getElementById('ae-nome').value=it.nome;
+  document.getElementById('ae-valor').value=it.valor_total;
+  document.getElementById('ae-qtd').value=it.qtd;
+  document.getElementById('ae-mes').value=it.mes_ref;
+  desenharMesesEdicao();
+  openOv('ov-anotacao-editar');setTimeout(()=>document.getElementById('ae-nome').focus(),80);
+}
+function desenharMesesEdicao(){
+  const {it}=acharItem(itemEditId);
+  const box=document.getElementById('ae-meses');
+  if(!it){box.innerHTML='';return;}
+  const qtd=parseInt(document.getElementById('ae-qtd').value)||it.qtd||1;
+  const mesRef=document.getElementById('ae-mes').value||it.mes_ref;
+  const pagas=new Set(it.pagas||[]);
+  let html='';
+  for(let k=1;k<=Math.min(qtd,120);k++){
+    const v=valorParc({...it,qtd},k);
+    const label=mesRefAdd(mesRef,k-1);
+    html+=`<div class="rec-mes-row"><div class="rec-mes-nome">${label}<small>${pagas.has(k)?'✓ pago':'em aberto'}</small></div><input type="number" id="ae-v-${k}" value="${v}" step="0.01" inputmode="decimal"><button class="rec-mes-ok" onclick="salvarValorMes(${k})" title="Salvar mês">✓</button></div>`;
+  }
+  box.innerHTML=html;
+}
+async function salvarValorMes(k){
+  const inp=document.getElementById(`ae-v-${k}`);
+  const v=parseFloat(inp?.value)||0;
+  try{
+    await api('POST',`/anotacoes/itens/${itemEditId}/valor`,{k,valor:v});
+    // atualiza cache local p/ não piscar
+    const {it}=acharItem(itemEditId);
+    if(it){
+      it.valores=it.valores||{};
+      if(v>0) it.valores[String(k)]=v; else delete it.valores[String(k)];
+    }
+    toast('Mês salvo!');
+    renderAnotacoes();
+    // reabre edição com valores atualizados
+    setTimeout(()=>{if(document.getElementById('ov-anotacao-editar').classList.contains('open')) desenharMesesEdicao();},300);
+  }catch(e){toast('Erro: '+e.message,false);}
+}
+async function salvarEdicaoItem(){
+  const nome=document.getElementById('ae-nome').value.trim();
+  const valor=parseFloat(document.getElementById('ae-valor').value)||0;
+  const qtd=parseInt(document.getElementById('ae-qtd').value)||0;
+  const mes=document.getElementById('ae-mes').value;
+  if(!nome||!valor||!qtd||!mes){toast('Preencha tudo','err');return;}
+  try{
+    await api('PUT',`/anotacoes/itens/${itemEditId}`,{nome,valor_total:valor,qtd,mes_ref:mes});
+    closeOv('ov-anotacao-editar');renderAnotacoes();toast('Salvo!');
+  }catch(e){toast('Erro: '+e.message,false);}
+}
+function cobrarPessoa(iid){
+  const {n,it}=acharItem(iid);
+  if(!it) return;
+  const pagas=new Set(it.pagas||[]);
+  const pend=[];
+  for(let k=1;k<=(it.qtd||0);k++){
+    if(!pagas.has(k)) pend.push({label:mesRefAdd(it.mes_ref,k-1),valor:valorParc(it,k)});
+  }
+  if(!pend.length){toast('Nada em aberto 🎉');return;}
+  let emAberto=0;
+  pend.forEach(p=>{emAberto=round2(emAberto+p.valor);});
+  const linhas=pend.map(p=>`• ${p.label}: ${fmt(p.valor)}`).join('\n');
+  const txt=`Oi ${it.nome}! Passando pra lembrar da conta ${n?.titulo||''}:\n${linhas}\n\nTotal em aberto: ${fmt(emAberto)}`;
+  try{navigator.clipboard?.writeText(txt);}catch(e){}
+  window.open(`https://wa.me/?text=${encodeURIComponent(txt)}`,'_blank');
+  toast('Mensagem copiada! 💬');
 }
 
 function renderComparativo(){
