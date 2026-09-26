@@ -1927,8 +1927,9 @@ function renderSobraBanner2(){
 function atualizarMesTrabLabel(){
   const el=document.getElementById('mes-trab-label');
   if(!el)return;
-  const it=idxTrabalho();
-  el.textContent=it>=0&&it<MESES?mesLabel(it,false):'';
+  // espelha a 1ª coluna visível da planilha (nunca fica vazio)
+  const ini=Math.min(Math.max(0,idxTrabalho()),MESES-1);
+  el.textContent=mesLabel(ini,false);
 }
 async function fecharMesSilencioso(idx,mesRef){
   if(mesRef==null||mesRef===''||idx<0||idx>=MESES)return false;
