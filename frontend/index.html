@@ -619,7 +619,7 @@ input[type=number]{-moz-appearance:textfield}
   <div class="header">
     <div class="logo">
       <div class="logo-dot"><svg viewBox="0 0 24 24"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/></svg></div>
-      <span class="logo-name">Controle Financeiro</span>
+      <span class="logo-name" id="logo-nome">Controle Financeiro</span>
     </div>
     <div class="header-right">
       <div class="sal-display" id="sal-display" onclick="abrirSalario()">
@@ -1738,14 +1738,19 @@ async function fazerLogin(){
     const d=await api('POST','/login',{username:user,password:pass});
     token=d.token;localStorage.setItem('fin_token',token);
     currentUser={username:d.username,role:d.role};
-    document.getElementById('user-display').textContent=d.username;
+    atualizarNomeUsuario();
     const rb=document.getElementById('role-badge');
     if(d.role==='admin'){rb.style.display='inline';rb.textContent='admin';}else{rb.style.display='none';}
     await iniciarApp();
   }catch(e){err.textContent=e.message;err.classList.add('show');}
   finally{btn.disabled=false;btn.textContent='Entrar';}
 }
-function logout(){token='';localStorage.removeItem('fin_token');document.getElementById('app-shell').classList.remove('visible');document.getElementById('login-screen').style.display='flex';document.getElementById('l-pass').value='';document.getElementById('l-err').classList.remove('show');}
+function atualizarNomeUsuario(){
+  const nome=currentUser?.username||'';
+  document.getElementById('user-display').textContent=nome||'—';
+  document.getElementById('logo-nome').textContent=nome?`Controle Financeiro - ${nome}`:'Controle Financeiro';
+}
+function logout(){token='';currentUser={};localStorage.removeItem('fin_token');atualizarNomeUsuario();document.getElementById('app-shell').classList.remove('visible');document.getElementById('login-screen').style.display='flex';document.getElementById('l-pass').value='';document.getElementById('l-err').classList.remove('show');}
 
 async function iniciarApp(){
   document.getElementById('login-screen').style.display='none';
@@ -3874,7 +3879,7 @@ function copiarTimes(){
 
 // ── BOOT ──
 window.addEventListener('DOMContentLoaded',async()=>{
-  if(token){try{const me=await api('GET','/me');currentUser=me;document.getElementById('user-display').textContent=me.username;const rb=document.getElementById('role-badge');if(me.role==='admin'){rb.style.display='inline';}else{rb.style.display='none';}await iniciarApp();}catch{token='';localStorage.removeItem('fin_token');}}
+  if(token){try{const me=await api('GET','/me');currentUser=me;atualizarNomeUsuario();const rb=document.getElementById('role-badge');if(me.role==='admin'){rb.style.display='inline';}else{rb.style.display='none';}await iniciarApp();}catch{token='';localStorage.removeItem('fin_token');}}
   document.getElementById('l-user').focus();
 });
 window.addEventListener('resize',()=>{if(document.getElementById('tab-resumo').classList.contains('active'))renderResumo();if(document.getElementById('tab-historico').classList.contains('active'))renderHistorico();});
