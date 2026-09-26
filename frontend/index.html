@@ -287,7 +287,7 @@ table.admin-table tr:hover td{background:var(--surface)}
 .mp-wrap input.mp-input.mp-erro{border-color:var(--red)}
 .mp-btn{position:absolute;right:4px;top:50%;transform:translateY(-50%);width:30px;height:30px;border:none;background:transparent;font-size:16px;cursor:pointer;border-radius:6px;display:flex;align-items:center;justify-content:center;opacity:.8;transition:.15s}
 .mp-btn:hover{background:var(--surface);opacity:1}
-.mp-pop{position:absolute;top:calc(100% + 6px);left:0;right:0;min-width:260px;background:var(--card);border:1px solid var(--border2);border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.45);z-index:120;padding:10px;display:none}
+.mp-pop{position:fixed;min-width:260px;max-width:calc(100vw - 16px);background:var(--card);border:1px solid var(--border2);border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.45);z-index:120;padding:10px;display:none;margin:0}
 .mp-pop.open{display:block;animation:fadeInUp .18s ease}
 .mp-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
 .mp-nav{width:28px;height:28px;border-radius:7px;border:1px solid var(--border);background:transparent;color:var(--text);font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center}
@@ -1526,15 +1526,26 @@ function abrirMp(id,ev){
   }
   _mpAno=a;
   desenharMp(m);
-  // posiciona o popup dentro do .mp-wrap (funciona dentro de modal com scroll)
-  const wrap=el.closest('.mp-wrap');
-  if(wrap){
-    // garante que o wrap seja o offsetParent
-    pop.remove();
-    wrap.appendChild(pop);
-  }
+  // popup é fixed no body (fora do modal) p/ nunca ficar cortado
   pop.classList.add('open');
-  // foco volta p/ input após escolher? não — mantém popup aberto
+  posicionarMp();
+}
+// Posiciona o calendário junto ao campo: embaixo por padrão, em cima se não couber
+function posicionarMp(){
+  const pop=document.getElementById('mp-pop');
+  const el=_mpAlvo?document.getElementById(_mpAlvo):null;
+  if(!pop||!el)return;
+  const r=el.getBoundingClientRect();
+  const w=Math.min(Math.max(r.width,260),window.innerWidth-16);
+  pop.style.width=w+'px';
+  pop.style.left=Math.max(8,Math.min(r.left,window.innerWidth-w-8))+'px';
+  const h=pop.offsetHeight||300;
+  const espacoAbaixo=window.innerHeight-r.bottom;
+  if(espacoAbaixo<h+8&&r.top>h+8){
+    pop.style.top=Math.max(8,r.top-h-6)+'px';
+  } else {
+    pop.style.top=(r.bottom+6)+'px';
+  }
 }
 function desenharMp(mesSel){
   const pop=document.getElementById('mp-pop');
@@ -1600,13 +1611,14 @@ function fecharMp(){
 }
 document.addEventListener('click',e=>{
   const pop=document.getElementById('mp-pop');
-  if(pop&&pop.classList.contains('open')&&!pop.contains(e.target)&&!e.target.classList?.contains('mp-btn')){
-    // se clicou fora do wrap atual, fecha (mas não se clicou no input — input abre)
-    const wrap=e.target.closest?.('.mp-wrap');
-    const wrapPop=pop.closest?.('.mp-wrap');
-    if(wrap!==wrapPop)fecharMp();
+  if(pop&&pop.classList.contains('open')&&!pop.contains(e.target)){
+    // cliques no campo/botão chamam abrirMp (com stopPropagation); qualquer outro clique fecha
+    if(!e.target.closest?.('.mp-wrap'))fecharMp();
   }
 });
+// como o popup é fixed, fecha ao rolar (modal, página) ou redimensionar p/ não descolar do campo
+document.addEventListener('scroll',()=>{const p=document.getElementById('mp-pop');if(p&&p.classList.contains('open'))fecharMp();},true);
+window.addEventListener('resize',()=>{const p=document.getElementById('mp-pop');if(p&&p.classList.contains('open'))fecharMp();});
 document.addEventListener('keydown',e=>{
   if(e.key==='Escape')fecharMp();
 });
