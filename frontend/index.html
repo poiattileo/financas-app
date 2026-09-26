@@ -1288,6 +1288,28 @@ input[type=number]{-moz-appearance:textfield}
       <button class="btn btn-primary" onclick="salvarCfg()" style="margin-top:10px">Salvar</button>
     </div>
     <div class="cfg-row">
+      <div class="cfg-label">🤖 Bot do Telegram</div>
+      <div class="cfg-sub">Vincule sua conta para lançar gastos e consultar pelo Telegram.</div>
+      <div id="tg-area" style="margin-top:8px">
+        <div id="tg-status" style="font-size:12px;color:var(--muted)">Verificando...</div>
+        <div id="tg-codigo-box" style="display:none;background:var(--input-bg);border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-top:8px;text-align:center">
+          <div style="font-size:11px;color:var(--muted)">Seu código de vínculo:</div>
+          <div id="tg-codigo" style="font-family:var(--mono);font-size:26px;font-weight:700;letter-spacing:4px;color:var(--green);margin:4px 0"></div>
+          <div style="font-size:12px;color:var(--muted)">Abra o bot no Telegram e envie:</div>
+          <div id="tg-comando" style="font-family:var(--mono);font-size:13px;color:var(--blue);margin:2px 0 8px"></div>
+          <div style="display:flex;gap:6px;justify-content:center">
+            <button class="btn btn-ghost" onclick="copiarCodigoTelegram()" style="font-size:11px;padding:5px 10px">📋 Copiar comando</button>
+            <button class="btn btn-ghost" onclick="gerarCodigoTelegram()" style="font-size:11px;padding:5px 10px">↻ Novo código</button>
+          </div>
+        </div>
+        <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
+          <button class="btn btn-ghost" id="tg-btn-gerar" onclick="gerarCodigoTelegram()" style="display:none">🔗 Gerar código</button>
+          <button class="btn btn-ghost" id="tg-btn-check" onclick="carregarTelegramStatus()" style="display:none">✓ Já vinculei, verificar</button>
+          <button class="btn btn-danger" id="tg-btn-desv" onclick="desvincularTelegram()" style="display:none">🔓 Desvincular</button>
+        </div>
+      </div>
+    </div>
+    <div class="cfg-row">
       <div class="cfg-label">Alterar senha</div>
       <div class="cfg-sub">Mínimo 6 caracteres.</div>
       <div class="field" style="margin-top:8px;margin-bottom:8px"><label>Senha atual</label><input type="password" id="cfg-s1" placeholder="••••••••"></div>
@@ -1845,6 +1867,57 @@ async function salvarCfg(){
 }
 async function trocarSenha(){const atual=document.getElementById('cfg-s1').value,nova=document.getElementById('cfg-s2').value,conf=document.getElementById('cfg-s3').value,errEl=document.getElementById('cfg-serr');errEl.classList.remove('show');if(!atual||!nova){errEl.textContent='Preencha todos os campos';errEl.classList.add('show');return;}if(nova!==conf){errEl.textContent='As senhas não coincidem';errEl.classList.add('show');return;}if(nova.length<6){errEl.textContent='Mínimo 6 caracteres';errEl.classList.add('show');return;}try{await api('PUT','/senha',{senha_atual:atual,senha_nova:nova});['cfg-s1','cfg-s2','cfg-s3'].forEach(id=>document.getElementById(id).value='');toast('Senha alterada!');}catch(e){errEl.textContent=e.message;errEl.classList.add('show');}}
 
+// ── TELEGRAM (vincular bot) ──
+let tgCodigoAtual='';
+function tgMostrar(elId,mostrar){const el=document.getElementById(elId);if(el)el.style.display=mostrar?'':'none';}
+async function carregarTelegramStatus(){
+  const st=document.getElementById('tg-status');
+  if(st){st.textContent='Verificando...';st.style.color='var(--muted)';}
+  tgMostrar('tg-codigo-box',false);
+  tgMostrar('tg-btn-gerar',false);tgMostrar('tg-btn-check',false);tgMostrar('tg-btn-desv',false);
+  try{
+    const r=await api('GET','/telegram/status');
+    if(r.vinculado){
+      if(st){st.textContent='✅ Conta vinculada ao bot!';st.style.color='var(--green)';}
+      tgMostrar('tg-btn-desv',true);
+    } else {
+      if(st){st.textContent='🔌 Nenhum Telegram vinculado.';st.style.color='var(--muted)';}
+      tgMostrar('tg-btn-gerar',true);
+    }
+  }catch(e){
+    if(st){st.textContent='⚠ Não foi possível verificar (bot pode estar desligado).';st.style.color='var(--amber)';}
+    tgMostrar('tg-btn-gerar',true);
+  }
+}
+async function gerarCodigoTelegram(){
+  const st=document.getElementById('tg-status');
+  try{
+    const r=await api('POST','/telegram/gerar-codigo');
+    tgCodigoAtual=r.codigo||'';
+    document.getElementById('tg-codigo').textContent=tgCodigoAtual;
+    document.getElementById('tg-comando').textContent=`/vincular ${tgCodigoAtual}`;
+    tgMostrar('tg-codigo-box',true);
+    tgMostrar('tg-btn-check',true);
+    tgMostrar('tg-btn-gerar',false);
+    if(st){st.textContent='📩 Código gerado! Envie no bot para concluir.';st.style.color='var(--blue)';}
+  }catch(e){toast('Erro ao gerar código: '+e.message,false);}
+}
+function copiarCodigoTelegram(){
+  if(!tgCodigoAtual){toast('Gere um código primeiro','err');return;}
+  const txt=`/vincular ${tgCodigoAtual}`;
+  try{navigator.clipboard?.writeText(txt);}catch(e){}
+  toast('Comando copiado! Cole no bot 📋');
+}
+async function desvincularTelegram(){
+  if(!confirm('Desvincular o Telegram desta conta?'))return;
+  try{
+    await api('POST','/telegram/desvincular');
+    tgCodigoAtual='';
+    toast('Telegram desvinculado 🔓');
+    carregarTelegramStatus();
+  }catch(e){toast('Erro: '+e.message,false);}
+}
+
 // ── MODAIS ──
 function selRec(el){document.querySelectorAll('#ov-lanc .rec-chip').forEach(c=>c.classList.remove('active'));el.classList.add('active');recSel=el.dataset.rec;}
 function selRep(el){document.querySelectorAll('#ov-repetir .rec-chip').forEach(c=>c.classList.remove('active'));el.classList.add('active');repSel=el.dataset.rep;}
@@ -2091,7 +2164,7 @@ function openModalCategoria(id=null){
 }
 
 function openOv(id){
-  if(id==='ov-cfg'){mpSet('cfg-mes',cfg.mes_inicio||'');previewCfg();document.getElementById('cfg-serr').classList.remove('show');atualizarBtnTema();}
+  if(id==='ov-cfg'){mpSet('cfg-mes',cfg.mes_inicio||'');previewCfg();document.getElementById('cfg-serr').classList.remove('show');atualizarBtnTema();carregarTelegramStatus();}
   fecharMp();
   document.getElementById(id).classList.add('open');
 }
