@@ -1040,7 +1040,6 @@ input[type=number]{-moz-appearance:textfield}
           <span style="color:var(--muted)">=</span>
           <span id="pv-depois" style="font-weight:700;font-size:16px"></span>
         </div>
-        <div id="pv-debug" style="font-size:10px;color:var(--hint);margin-top:6px;font-family:var(--mono)"></div>
       </div>
 
     </div><!-- fim bloco fixo -->
@@ -1383,9 +1382,11 @@ let historicoFechados=[];
 let repetirLanc=null,aportarMetaId=null,editUserId=null,editCatId=null,recSel='nunca',repSel='agora',corSel='green';
 
 // ── UTILS ──
-window.FIN_BUILD='2026-09-26-ajuste2';console.log('[financas] build '+window.FIN_BUILD);
+window.FIN_BUILD='2026-09-26-negfix';console.log('[financas] build '+window.FIN_BUILD);
 function round2(v){ return Math.round((Number(v)||0)*100)/100; }
 const fmt=v=>'R$ '+Math.abs(round2(v)).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+// fmt com sinal: valor negativo (a receber) aparece como "-R$ X". fmt() puro esconde o sinal!
+const fmtS=v=>(Number(v)<0?'-':'')+fmt(v);
 // número digitado em pt-BR: aceita "30", "30.5", "30,5" e "1.234,56"
 function numBR(v){
   if(typeof v==='number')return v;
@@ -1955,7 +1956,7 @@ function openModalGasto(id=null){
   if(g)document.getElementById('g-cat').value=g.cat;
   document.getElementById('g-valor').value='';
   fecharMp();
-  if(g){const idxs=g.valores.map((v,i)=>v>0?i:-1).filter(i=>i>=0);if(idxs.length){const i0=Math.min(...idxs),i1=Math.max(...idxs);mpSet('g-inicio',idxParaStr(i0));mpSet('g-fim',i1>=MESES-1?'':idxParaStr(i1));}else{mpSet('g-inicio','');mpSet('g-fim','');}const vals=g.valores.filter(v=>v>0);if(vals.length)document.getElementById('g-valor').value=vals[0];}
+  if(g){const idxs=g.valores.map((v,i)=>v!==0?i:-1).filter(i=>i>=0);if(idxs.length){const i0=Math.min(...idxs),i1=Math.max(...idxs);mpSet('g-inicio',idxParaStr(i0));mpSet('g-fim',i1>=MESES-1?'':idxParaStr(i1));}else{mpSet('g-inicio','');mpSet('g-fim','');}const vals=g.valores.filter(v=>v!==0);if(vals.length)document.getElementById('g-valor').value=vals[0];}
   else{mpSet('g-inicio',idxParaStr(Math.max(0,idxTrabalho())));mpSet('g-fim','');}
   document.getElementById('g-preview').innerHTML='Preencha os campos...';
   openOv('ov-gasto');setTimeout(()=>document.getElementById('g-nome').focus(),80);
@@ -2100,26 +2101,26 @@ function atualizarInfoFixo(){
     Array.from(selFixo.options).forEach(opt=>{
       if(parseInt(opt.value)===g.id){
         const vMes=g.valores[mesIdxSel]||0;
-        opt.text=`${ci.emoji} ${g.nome} — ${fmt(vMes)}/mês`;
+        opt.text=`${ci.emoji} ${g.nome} — ${fmtS(vMes)}/mês`;
       }
     });
   }
-  // preenche card com o mês selecionado
+  // preenche card com o mês selecionado (com sinal: negativo = a receber)
   document.getElementById('ln-fixo-emoji').textContent=ci.emoji;
   document.getElementById('ln-fixo-nome').textContent=g.nome;
   document.getElementById('ln-fixo-cat').textContent=ci.label;
   // label do mês selecionado no header do card
   const labelMesSel=mesLabel(mesIdxSel,false);
-  document.getElementById('ln-fixo-mes-atual').textContent=fmt(g.valores[mesIdxSel]||0);
+  document.getElementById('ln-fixo-mes-atual').textContent=fmtS(g.valores[mesIdxSel]||0);
   // label da coluna "mês atual" passa a ser o mês selecionado
   const colMesAtual=document.querySelector('#ln-fixo-card [style*="Mês atual"], #ln-fixo-card .ct-header');
   // atualiza labels das colunas do card
   const cardCols=document.querySelectorAll('#ln-fixo-card [style*="font-size:9px"]');
   if(cardCols[0]) cardCols[0].textContent=labelMesSel;
   if(cardCols[1]) cardCols[1].textContent=mesLabel(mesIdxSel+1,false);
-  document.getElementById('ln-fixo-prox').textContent=fmt(g.valores[mesIdxSel+1]||0);
-  // período ativo
-  const ativos=g.valores.map((v,i)=>v>0?i:-1).filter(i=>i>=0);
+  document.getElementById('ln-fixo-prox').textContent=fmtS(g.valores[mesIdxSel+1]||0);
+  // período ativo (inclui meses negativos = a receber)
+  const ativos=g.valores.map((v,i)=>v!==0?i:-1).filter(i=>i>=0);
   if(ativos.length){
     document.getElementById('ln-fixo-periodo').textContent=
       mesLabel(Math.min(...ativos),true)+' → '+mesLabel(Math.max(...ativos),true);
@@ -2144,15 +2145,14 @@ function previewAjuste(){
   const vAtual=Number(g.valores[mesIdxSel])||0;
   if(isNaN(vAtual)){prev.style.display='none';return;}
   const op=window._lnOp||'subtrair';
-  // − diminui do valor já lançado · + soma ao valor já lançado (sem negativar)
-  const novo=op==='subtrair'?Math.max(0,round2(vAtual-delta)):round2(vAtual+delta);
-  elAntes.textContent=fmt(vAtual);
+  // − diminui do valor já lançado · + soma ao valor já lançado.
+  // Sem travar em zero: o backend/bot permitem negativo (= a receber), o preview mostra igual ao que salva.
+  const novo=round2(op==='subtrair'?vAtual-delta:vAtual+delta);
+  elAntes.textContent=fmtS(vAtual)+(vAtual<0?' (a receber)':'');
   elOp.textContent=op==='subtrair'?'−':'+';
   elDelta.textContent=fmt(delta);
-  elDepois.textContent=fmt(novo);
-  elDepois.style.color=op==='subtrair'?'var(--green)':'var(--red)';
-  const elDbg=document.getElementById('pv-debug');
-  if(elDbg)elDbg.textContent=`[tmp-debug] build=${window.FIN_BUILD||'?'} mesIdx=${mesIdxSel} vRaw=${JSON.stringify(g.valores[mesIdxSel])} dRaw=${JSON.stringify(document.getElementById('ln-fixo-valor')?.value)} op=${op}`;
+  elDepois.textContent=fmtS(novo)+(novo<0?' (a receber)':'');
+  elDepois.style.color=novo<0?'var(--teal)':op==='subtrair'?'var(--green)':'var(--red)';
   prev.style.display='';
 }
 function openModalMeta(){corSel='green';document.querySelectorAll('.cor-chip').forEach((c,i)=>c.classList.toggle('active',i===0));['mt-nome','mt-alvo'].forEach(id=>document.getElementById(id).value='');openOv('ov-meta');setTimeout(()=>document.getElementById('mt-nome').focus(),80);}
@@ -2265,7 +2265,7 @@ async function addLanc(d,v,c,l,r){
         tipo_ajuste:op,criado_em:dataLanc.toISOString()});
       closeOv('ov-lanc');renderTabela();renderLancamentos();renderSobraBanner();renderSobraBanner2();
       ultimoLanc={modo:'fixo',gid,idx:mesIdx,anterior:valorAnterior,lancId:resL.id,desc:g?.nome||'Gasto fixo'};
-      toastDesfazer(`${g?.nome||'Gasto'} → ${fmt(res.novo_valor)}!`);
+      toastDesfazer(`${g?.nome||'Gasto'} → ${fmtS(res.novo_valor)}!`);
     }catch(e){toast('Erro: '+e.message,false);}
     return;
   }
