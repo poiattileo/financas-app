@@ -157,6 +157,45 @@ def parse_valor(texto):
     except ValueError:
         return None
 
+# Convenção: NEGATIVO = a pagar, POSITIVO = a receber.
+def fbrs(v):
+    """Formata com sinal: -R$ X (pagar) | +R$ X (a receber)."""
+    s = f"{abs(v):.2f}".replace(".", ",")
+    if v > 0:
+        return f"+R$ {s} (a receber)"
+    if v < 0:
+        return f"-R$ {s}"
+    return "R$ 0,00"
+
+def aplicar_ajuste(atual, delta_typed):
+    """delta negativo (desconto) aproxima de zero; positivo (acréscimo) afasta.
+    Vale p/ dívida (negativo) e crédito (positivo)."""
+    atual = float(atual or 0)
+    delta_typed = float(delta_typed or 0)
+    if delta_typed < 0:
+        mag = max(0.0, round(abs(atual) - abs(delta_typed), 2))
+        if mag == 0:
+            return 0.0
+        return -mag if atual < 0 else (mag if atual > 0 else 0.0)
+    mag = round(abs(atual) + abs(delta_typed), 2)
+    if atual == 0:
+        return -mag  # assume dívida (caso comum de fixo)
+    return -mag if atual < 0 else mag
+
+def desfazer_ajuste(atual, tipo, v):
+    """Reverso do aplicar_ajuste (p/ /reverter)."""
+    atual = float(atual or 0)
+    v = abs(float(v or 0))
+    if tipo == "subtrair":  # desfaz desconto: afasta de zero
+        mag = round(abs(atual) + v, 2)
+        if atual == 0:
+            return -mag
+        return -mag if atual < 0 else mag
+    mag = max(0.0, round(abs(atual) - v, 2))  # desfaz acréscimo: aproxima
+    if mag == 0:
+        return 0.0
+    return -mag if atual < 0 else (mag if atual > 0 else 0.0)
+
 def calcular_lancamento(user, linhas):
     """Valida as linhas do rápido e monta o pendente SEM salvar.
     Retorna (pendente, erro). pendente['kind'] = 'ajuste' | 'avulso'."""
@@ -190,7 +229,7 @@ def calcular_lancamento(user, linhas):
         row = cur.fetchone()
         cur.close(); db.close()
         valor_atual = float(row["valor"]) if row else 0.0
-        novo_valor = round(valor_atual + valor, 2)
+        novo_valor = aplicar_ajuste(valor_atual, valor)
         op = "Desconto" if valor < 0 else "Acréscimo"
         tipo_aj = "subtrair" if valor < 0 else "somar"
         motivo_final = motivo_raw if motivo_raw else "via Telegram"
@@ -219,11 +258,11 @@ def executar_lancamento(user, p):
         )
         lid = cur.lastrowid
         cur.close(); db.close()
-        sinal = "recebimento (valor negativo)" if p["novo"] < 0 else "a pagar"
+        sinal = "a receber" if p["novo"] > 0 else "a pagar"
         texto = (f"✅ *{p['gasto_nome']}* ajustado!\n"
-                f"Valor anterior: R$ {p['anterior']:.2f}\n"
+                f"Valor anterior: {fbrs(p['anterior'])}\n"
                 f"Ajuste: {'−' if p['valor']<0 else '+'} R$ {p['valor_abs']:.2f}\n"
-                f"*Novo valor: R$ {p['novo']:.2f}* ({sinal})")
+                f"*Novo valor: {fbrs(p['novo'])}* ({sinal})")
         if p["motivo_raw"]:
             texto += f"\n💬 _{p['motivo_raw']}_"
         return lid, texto
@@ -282,7 +321,7 @@ def calc_totais_mes(user, idx):
 
     cur.close(); db.close()
     total = round(total_fixos + total_parc, 2)
-    sobra = round(sal - total, 2)
+    sobra = round(sal + total, 2)  # fixos/parcelas negativos = a pagar
     return {
         "sal": sal, "fixos": round(total_fixos,2), "parcelas": round(total_parc,2),
         "lancamentos": round(total_lanc,2), "total": total, "sobra": sobra,
@@ -295,12 +334,12 @@ def relatorio_resumo_mes(user):
     mes_nome = datetime.now().strftime("%B/%Y")
     txt = (f"📊 *Resumo — {mes_nome}*\n\n"
            f"💵 Salário: R$ {d['sal']:.2f}\n"
-           f"🏠 Fixos: R$ {d['fixos']:.2f}\n"
-           f"💳 Parcelas: R$ {d['parcelas']:.2f}\n"
+           f"🏠 Fixos: {fbrs(d['fixos'])}\n"
+           f"💳 Parcelas: {fbrs(d['parcelas'])}\n"
            f"⚡ Lançamentos: R$ {d['lancamentos']:.2f}\n"
            f"➖➖➖➖➖➖➖\n"
-           f"💸 Total saídas: R$ {d['total']:.2f}\n"
-           f"{'✅' if d['sobra']>=0 else '⚠️'} *Sobra: R$ {d['sobra']:.2f}*")
+           f"💸 Total: {fbrs(d['total'])}\n"
+           f"{'✅' if d['sobra']>=0 else '⚠️'} *Sobra: {fbrs(d['sobra'])}*")
     return txt
 
 def relatorio_gastos_fixos(user):
@@ -308,8 +347,8 @@ def relatorio_gastos_fixos(user):
     d = calc_totais_mes(user, idx)
     if not d["detalhes_fixos"]:
         return "📋 Nenhum gasto fixo com valor neste mês."
-    linhas = "\n".join([f"• {nome}: R$ {v:.2f}" for nome, v in sorted(d["detalhes_fixos"], key=lambda x:-x[1])])
-    return f"📋 *Gastos fixos do mês:*\n\n{linhas}\n\n*Total: R$ {d['fixos']:.2f}*"
+    linhas = "\n".join([f"• {nome}: {fbrs(v)}" for nome, v in sorted(d["detalhes_fixos"], key=lambda x:-abs(x[1]))])
+    return f"📋 *Gastos fixos do mês:*\n\n{linhas}\n\n*Total: {fbrs(d['fixos'])}*"
 
 def relatorio_lancamentos_mes(user):
     idx = idx_trabalho(user.get("mes_inicio") or "")
@@ -583,14 +622,22 @@ def gerar_relatorio_whatsapp(user, gasto_id, idx):
             lancs.append(l)
 
     total_ajustes = 0.0
+    sum_sub = 0.0
+    sum_som = 0.0
     for l in lancs:
         sub = l.get("tipo_ajuste") == "subtrair" or (not l.get("tipo_ajuste") and re.match(r"(?i)^desconto\s*:", l["descricao"] or ""))
         som = l.get("tipo_ajuste") == "somar" or (not l.get("tipo_ajuste") and re.match(r"(?i)^acr[eé]scimo\s*:", l["descricao"] or ""))
         if sub:
             total_ajustes -= float(l["valor"])
+            sum_sub += float(l["valor"])
         elif som:
             total_ajustes += float(l["valor"])
-    valor_original = round(valor_base - total_ajustes, 2)
+            sum_som += float(l["valor"])
+    # convenção: negativo = a pagar. Base = atual + sinal*(descontos − acréscimos)
+    if valor_base == 0:
+        valor_original = round(valor_base - total_ajustes, 2)
+    else:
+        valor_original = round(valor_base + (-1 if valor_base < 0 else 1) * (sum_sub - sum_som), 2)
 
     mes_nome = nome_mes_longo(mes_inicio, idx)
     fbr = lambda v: f"{v:.2f}".replace(".", ",")
@@ -598,7 +645,7 @@ def gerar_relatorio_whatsapp(user, gasto_id, idx):
     linhas = []
     linhas.append(f"*{limpar_md(g['nome'])} — {mes_nome}*")
     if lancs:
-        linhas.append(f"Base: R$ {fbr(valor_original)}")
+        linhas.append(f"Base: {fbrs(valor_original)}")
         for l in lancs:
             d = l["criado_em"]
             dia = f"{d.day:02d}/{d.month:02d}"
@@ -609,9 +656,9 @@ def gerar_relatorio_whatsapp(user, gasto_id, idx):
             if l.get("motivo"):
                 linha += f" — {limpar_md(l['motivo'])}"
             linhas.append(linha)
-        linhas.append(f"*Final: R$ {fbr(valor_base)}*")
+        linhas.append(f"*Final: {fbrs(valor_base)}*")
     else:
-        linhas.append(f"*Valor: R$ {fbr(valor_base)}*")
+        linhas.append(f"*Valor: {fbrs(valor_base)}*")
     return "\n".join(linhas)
 
 def calcular_parcelado(user, linhas):
@@ -625,7 +672,7 @@ def calcular_parcelado(user, linhas):
     motivo = linhas[4].strip() if len(linhas) > 4 else ""
     if not nome:
         return None, "❌ Faltou o nome do gasto."
-    if total is None or total <= 0:
+    if total is None or total == 0:
         return None, "❌ Não entendi o valor total. Use algo como `1200`."
     if not 1 <= qtd <= 48:
         return None, "❌ Quantidade inválida. Manda de 1 a 48 (ex: `12` ou `12x`)."
@@ -633,7 +680,8 @@ def calcular_parcelado(user, linhas):
     idx_ini = _mes_ou_trabalho(mes_raw, mes_inicio)
     if idx_ini is None:
         return None, "❌ Não entendi o mês. Manda tipo `agosto`, `08/2026` ou deixa em branco."
-    total = abs(total)
+    # compra parcelada é sempre dívida: guarda negativo (a pagar)
+    total = -abs(total)
     vp = round(total / qtd, 2)
     gasto = buscar_gasto_por_nome(user["id"], nome)
     if gasto:
@@ -667,7 +715,7 @@ def executar_parcelado(user, p):
         cur.close(); db.close()
         mes_inicio = user.get("mes_inicio") or ""
         resp = (f"✅ *{p['gasto_nome']}* atualizado!\n"
-                f"{p['feitas']}x de R$ {p['vp']:.2f} somadas mês a mês\n"
+                f"{p['feitas']}x de R$ {abs(p['vp']):.2f} somadas mês a mês\n"
                 f"📅 {nome_mes_idx(mes_inicio, p['idx_ini'])} → {nome_mes_idx(mes_inicio, p['idx_ini'] + p['feitas'] - 1)}")
         if p["ignoradas"] > 0:
             resp += f"\n⚠️ {p['ignoradas']} parcela(s) além de 48 meses ignoradas."
@@ -680,8 +728,8 @@ def executar_parcelado(user, p):
         (user["id"], p["nome"], round(p["total"], 2), p["qtd"], p["idx_ini"], p["vp"]))
     cur.close(); db.close()
     mes_inicio = user.get("mes_inicio") or ""
-    resp = (f"✅ Parcelado registrado!\n*{p['nome']}* — {p['qtd']}x de R$ {p['vp']:.2f} "
-            f"(total R$ {p['total']:.2f})\n"
+    resp = (f"✅ Parcelado registrado!\n*{p['nome']}* — {p['qtd']}x de R$ {abs(p['vp']):.2f} "
+            f"(total R$ {abs(p['total']):.2f})\n"
             f"📅 {nome_mes_idx(mes_inicio, p['idx_ini'])} → {nome_mes_idx(mes_inicio, p['idx_ini'] + p['qtd'] - 1)}")
     if p["motivo"]:
         resp += f"\n💬 _{p['motivo']}_"
@@ -723,7 +771,7 @@ def resumo_confirmacao(user, est):
                 txt += f"\n⚠️ {p['ignoradas']} além de 48 meses ignoradas."
         else:
             txt = (f"💳 *Confirma a parcelada?*\n*{limpar_md(p['nome'])}* — "
-                   f"{p['qtd']}x de R$ {p['vp']:.2f} (total R$ {p['total']:.2f})\n"
+                   f"{p['qtd']}x de R$ {abs(p['vp']):.2f} (total R$ {abs(p['total']):.2f})\n"
                    f"📅 {nome_mes_idx(mes_inicio, p['idx_ini'])} → "
                    f"{nome_mes_idx(mes_inicio, p['idx_ini'] + p['qtd'] - 1)}\nNova compra separada.")
         if p.get("motivo"):
@@ -732,9 +780,9 @@ def resumo_confirmacao(user, est):
     if p["kind"] == "ajuste":
         txt = (f"⚡ *Confirma o lançamento?*\n*{limpar_md(p['gasto_nome'])}* — "
                f"{nome_mes_longo(mes_inicio, p['idx'])}\n"
-               f"Antes: R$ {p['anterior']:.2f}\n"
+               f"Antes: {fbrs(p['anterior'])}\n"
                f"Ajuste: {'−' if p['valor'] < 0 else '+'} R$ {p['valor_abs']:.2f}\n"
-               f"*Depois: R$ {p['novo']:.2f}*")
+               f"*Depois: {fbrs(p['novo'])}*")
     else:
         txt = (f"⚡ *Confirma o lançamento?*\nNovo avulso: *{limpar_md(p['desc'])}* — "
                f"R$ {p['valor_abs']:.2f}\n📅 {nome_mes_longo(mes_inicio, p['idx'])}")
@@ -860,8 +908,7 @@ def reverter_lancamento_db(user_id, lid):
             cur.execute("SELECT valor FROM gasto_valores WHERE gasto_id=%s AND idx=%s", (g["id"], mes_idx))
             row = cur.fetchone()
             atual = float(row["valor"]) if row else 0.0
-            reverso = valor if tipo == "subtrair" else -valor
-            novo = round(atual + reverso, 2)
+            novo = desfazer_ajuste(atual, tipo, valor)
             antes, depois = atual, novo
             if novo == 0:
                 cur.execute("DELETE FROM gasto_valores WHERE gasto_id=%s AND idx=%s", (g["id"], mes_idx))
@@ -896,10 +943,9 @@ def texto_reverter_preview(user, l):
         cur.execute("SELECT valor FROM gasto_valores WHERE gasto_id=%s AND idx=%s", (g["id"], l["mes_idx"]))
         row = cur.fetchone(); cur.close(); db.close()
         atual = float(row["valor"]) if row else 0.0
-        reverso = float(l["valor"] or 0) if l.get("tipo_ajuste") == "subtrair" else -float(l["valor"] or 0)
-        novo = round(atual + reverso, 2)
+        novo = desfazer_ajuste(atual, l.get("tipo_ajuste"), l.get("valor") or 0)
         return (f"↩️ *Reverter {op}?*\n*{limpar_md(g['nome'])}* — {nome_mes_longo(mes_inicio, l['mes_idx'])}\n"
-                f"{atual:.2f} → {novo:.2f}\nApaga o registro espelho.")
+                f"{fbrs(atual)} → {fbrs(novo)}\nApaga o registro espelho.")
     return (f"↩️ *Reverter {op}?*\n\"{limpar_md(l.get('descricao'))}\"\n"
             f"Registro antigo sem vínculo: apaga só o espelho, o fixo NÃO muda.")
 
@@ -1094,7 +1140,7 @@ def processar_callback(chat_id, callback_data):
         conversas.pop(chat_id, None)
         if r["tipo"] in ("subtrair", "somar") and r["tem_gasto"]:
             txt = (f"↩️ Revertido!\n*{limpar_md(r['gasto_nome'])}*: "
-                   f"R$ {r['antes']:.2f} → R$ {r['depois']:.2f}\nRegistro espelho apagado.")
+                   f"{fbrs(r['antes'])} → {fbrs(r['depois'])}\nRegistro espelho apagado.")
         elif r["tipo"] in ("subtrair", "somar"):
             txt = "↩️ Espelho apagado. (Sem vínculo: o fixo NÃO mudou.)"
         else:
@@ -1159,6 +1205,7 @@ def processar_mensagem(chat_id, texto):
 
     if texto.startswith("/ajuda"):
         return ("📋 *Formato da mensagem:*\n```\nNome do gasto\nValor\nMês (opcional)\nMotivo (opcional)\n```\n\n"
+                "• Convenção: valor *negativo = a pagar*, *positivo = a receber*\n"
                 "• Se o *Nome* bater com um gasto fixo já cadastrado → ajusta esse gasto (use sinal: -35.42 ou +50)\n"
                 "• Se não bater → cria um lançamento avulso novo\n"
                 "• *Mês* pode ser tipo `agosto` ou `08/2026`. Se não informar, usa o mês atual.\n"

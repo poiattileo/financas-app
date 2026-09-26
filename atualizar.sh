@@ -43,5 +43,8 @@ fi
 echo "→ aplicando migrations do banco..."
 mysql financas < atualizar_banco.sql
 
+echo "→ inversão de sinais (uma vez só, com trava)..."
+/opt/financas/venv/bin/python3 "$SCRIPT_DIR/backend/migrar_sinais.py" || python3 "$SCRIPT_DIR/backend/migrar_sinais.py" || echo "  (aviso: não rodou — confira manualmente: sudo python3 backend/migrar_sinais.py)"
+
 echo ""
 echo "OK! Agora limpe o cache do navegador (Ctrl+Shift+R) e teste."

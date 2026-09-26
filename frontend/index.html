@@ -864,7 +864,7 @@ input[type=number]{-moz-appearance:textfield}
     <div class="field"><label>Nome</label><input id="g-nome" placeholder="Ex: Aluguel, Internet..."></div>
     <div class="field-row">
       <div class="field"><label>Categoria</label><select id="g-cat"></select></div>
-      <div class="field"><label>Valor mensal (R$)</label><input id="g-valor" type="number" placeholder="0,00" step="0.01" inputmode="decimal" oninput="previewGasto()"></div>
+      <div class="field"><label>Valor mensal (R$)</label><input id="g-valor" type="number" placeholder="-200,00" step="0.01" inputmode="decimal" oninput="previewGasto()"><div style="font-size:10px;color:var(--hint);margin-top:3px">negativo = a pagar · positivo = a receber</div></div>
     </div>
     <div class="field-row">
       <div class="field"><label>Mês início</label><div class="mp-wrap"><input type="text" id="g-inicio" class="mp-input" placeholder="MM/AAAA" inputmode="numeric" autocomplete="off" oninput="onMpDigitar('g-inicio')" onclick="abrirMp('g-inicio',event)"><button type="button" class="mp-btn" onclick="abrirMp('g-inicio',event)" title="Escolher mês">📅</button></div></div>
@@ -885,7 +885,7 @@ input[type=number]{-moz-appearance:textfield}
     <h3>Nova compra parcelada</h3>
     <div class="field"><label>Descrição</label><input id="p-nome" placeholder='Ex: TV, Notebook...'></div>
     <div class="field-row">
-      <div class="field"><label>Valor total (R$)</label><input id="p-total" type="number" placeholder="8000,00" step="0.01" inputmode="decimal" oninput="previewParcela()"></div>
+      <div class="field"><label>Valor total (R$)</label><input id="p-total" type="number" placeholder="8000,00" step="0.01" inputmode="decimal" oninput="previewParcela()"><div style="font-size:10px;color:var(--hint);margin-top:3px">compra entra como conta a pagar</div></div>
       <div class="field"><label>Nº de parcelas</label><input id="p-qtd" type="number" placeholder="12" min="1" max="48" inputmode="numeric" oninput="previewParcela()"></div>
     </div>
     <div class="field-row">
@@ -1381,8 +1381,34 @@ let repetirLanc=null,aportarMetaId=null,editUserId=null,editCatId=null,recSel='n
 window.FIN_BUILD='2026-09-26-negfix';console.log('[financas] build '+window.FIN_BUILD);
 function round2(v){ return Math.round((Number(v)||0)*100)/100; }
 const fmt=v=>'R$ '+Math.abs(round2(v)).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
-// fmt com sinal: valor negativo (a receber) aparece como "-R$ X". fmt() puro esconde o sinal!
-const fmtS=v=>(Number(v)<0?'-':'')+fmt(v);
+// fmt com sinal (extrato): negativo = A PAGAR, positivo = A RECEBER
+const fmtS=v=>(Number(v)<0?'-':Number(v)>0?'+':'')+fmt(v);
+// Convenção: NEGATIVO = a pagar, POSITIVO = a receber.
+// aplicarAjuste: deltaTyped negativo = desconto (aproxima de zero),
+// positivo = acréscimo (afasta de zero). Vale p/ dívida e crédito.
+function aplicarAjuste(atual,deltaTyped){
+  atual=Number(atual)||0;deltaTyped=Number(deltaTyped)||0;
+  if(deltaTyped<0){
+    const mag=Math.max(0,round2(Math.abs(atual)-Math.abs(deltaTyped)));
+    if(mag===0)return 0;
+    return atual<0?-mag:(atual>0?mag:0);
+  }
+  const mag=round2(Math.abs(atual)+Math.abs(deltaTyped));
+  if(atual===0)return -mag; // assume dívida (caso comum de fixo)
+  return atual<0?-mag:mag;
+}
+// reverso do aplicarAjuste (p/ reverter lançamento)
+function desfazerAjuste(atual,tipo,v){
+  atual=Number(atual)||0;v=Math.abs(Number(v)||0);
+  if(tipo==='subtrair'){ // desfaz desconto: afasta de zero
+    const mag=round2(Math.abs(atual)+v);
+    if(atual===0)return -mag;
+    return atual<0?-mag:mag;
+  } // desfaz acréscimo: aproxima de zero
+  const mag=Math.max(0,round2(Math.abs(atual)-v));
+  if(mag===0)return 0;
+  return atual<0?-mag:(atual>0?mag:0);
+}
 // número digitado em pt-BR: aceita "30", "30.5", "30,5" e "1.234,56"
 function numBR(v){
   if(typeof v==='number')return v;
@@ -1862,7 +1888,7 @@ function calcSobraHoje(){
   const fixos=round2(gastos.reduce((s,g)=>s+(g.valores[ih]||0),0));
   const pm=round2(parc[ih]||0),lm=round2(lancIdx[ih]||0);
   const tot=round2(fixos+pm);
-  return{sal,fixos,pm,lm,tot,sobra:round2(sal-tot)};
+  return{sal,fixos,pm,lm,tot,sobra:round2(sal+tot)};
 }
 function animarNumero(el, valorFinal, prefixo='R$ '){
   if(!el) return;
@@ -1937,7 +1963,7 @@ async function fecharMesSilencioso(idx,mesRef){
   const sal=cfg.salario||0,parc=calcParcelasIdx(),lancIdx=calcLancIdxTudo();
   const fx=round2(gastos.reduce((s,g)=>s+(g.valores[idx]||0),0));
   const pm=round2(parc[idx]||0),lm=round2(lancIdx[idx]||0);
-  const tot=round2(fx+pm),sob=round2(sal-tot);
+  const tot=round2(fx+pm),sob=round2(sal+tot);
   const det=gastos.filter(g=>(g.valores[idx]||0)!==0).map(g=>({nome:g.nome,cat:g.cat,valor:round2(g.valores[idx])}));
   await api('POST','/historico/fechar',{mes_idx:idx,mes_ref:mesRef,salario:sal,fixos:fx,parcelas:pm,lancamentos:lm,total:tot,sobra:sob,detalhes:JSON.stringify(det).slice(0,4000)});
   return true;
@@ -2065,7 +2091,7 @@ function openModalParcela(){
   }
   openOv('ov-parcela');setTimeout(()=>document.getElementById('p-nome').focus(),80);
 }
-function previewParcela(){const total=parseFloat(document.getElementById('p-total').value)||0,qtd=parseInt(document.getElementById('p-qtd').value)||0,mes=mpGet('p-mes'),el=document.getElementById('parc-preview');if(!total||!qtd||!mes){el.innerHTML='Preencha os campos...';return;}const vp=total/qtd,idx=strParaIdx(mes);if(idx>=MESES){el.innerHTML='<span style="color:var(--red)">Além de 48 meses!</span>';return;}const fim=Math.min(idx+qtd-1,MESES-1),fora=qtd-(fim-idx+1);el.innerHTML=`<span>${qtd}x</span> de <span>${fmt(vp)}</span> = <span>${fmt(total)}</span><br>${mesLabel(idx,false)} → ${mesLabel(fim,false)}`+(fora>0?`<br><span style="color:var(--amber)">⚠ ${fora} além</span>`:'');}
+function previewParcela(){const totalRaw=parseFloat(document.getElementById('p-total').value)||0,qtd=parseInt(document.getElementById('p-qtd').value)||0,mes=mpGet('p-mes'),el=document.getElementById('parc-preview');if(!totalRaw||!qtd||!mes){el.innerHTML='Preencha os campos...';return;}const total=-round2(Math.abs(totalRaw)),vp=round2(total/qtd),idx=strParaIdx(mes);if(idx>=MESES){el.innerHTML='<span style="color:var(--red)">Além de 48 meses!</span>';return;}const fim=Math.min(idx+qtd-1,MESES-1),fora=qtd-(fim-idx+1);el.innerHTML=`<span>${qtd}x</span> de <span>${fmt(Math.abs(vp))}</span> = <span>${fmt(Math.abs(total))}</span><br>${mesLabel(idx,false)} → ${mesLabel(fim,false)}`+(fora>0?`<br><span style="color:var(--amber)">⚠ ${fora} além</span>`:'');}
 function popularSelectMes(elId, idxSelecionado=null){
   const el=document.getElementById(elId);if(!el)return;
   const ih=idxTrabalho();
@@ -2234,14 +2260,15 @@ function previewAjuste(){
   const vAtual=Number(g.valores[mesIdxSel])||0;
   if(isNaN(vAtual)){prev.style.display='none';return;}
   const op=window._lnOp||'subtrair';
-  // − diminui do valor já lançado · + soma ao valor já lançado.
-  // Sem travar em zero: o backend/bot permitem negativo (= a receber), o preview mostra igual ao que salva.
-  const novo=round2(op==='subtrair'?vAtual-delta:vAtual+delta);
-  elAntes.textContent=fmtS(vAtual)+(vAtual<0?' (a receber)':'');
+  // − diminui (desconto: aproxima de zero) · + soma (acréscimo: afasta de zero).
+  // Igual ao que salva (backend só soma o delta). Negativo = a pagar.
+  const deltaTyped=op==='subtrair'?-delta:delta;
+  const novo=aplicarAjuste(vAtual,deltaTyped);
+  elAntes.textContent=fmtS(vAtual)+(vAtual>0?' (a receber)':'');
   elOp.textContent=op==='subtrair'?'−':'+';
   elDelta.textContent=fmt(delta);
-  elDepois.textContent=fmtS(novo)+(novo<0?' (a receber)':'');
-  elDepois.style.color=novo<0?'var(--teal)':op==='subtrair'?'var(--green)':'var(--red)';
+  elDepois.textContent=fmtS(novo)+(novo>0?' (a receber)':'');
+  elDepois.style.color=novo>0?'var(--teal)':op==='subtrair'?'var(--green)':'var(--red)';
   prev.style.display='';
 }
 function openModalMeta(){corSel='green';document.querySelectorAll('.cor-chip').forEach((c,i)=>c.classList.toggle('active',i===0));['mt-nome','mt-alvo'].forEach(id=>document.getElementById(id).value='');openOv('ov-meta');setTimeout(()=>document.getElementById('mt-nome').focus(),80);}
@@ -2301,8 +2328,10 @@ async function addGasto(){
   }catch(e){toast('Erro: '+e.message,false);}
 }
 async function addParcela(){
-  const nome=document.getElementById('p-nome').value.trim(),total=parseFloat(document.getElementById('p-total').value)||0,qtd=parseInt(document.getElementById('p-qtd').value)||0,mes=mpGet('p-mes'),cat=document.getElementById('p-cat').value;
-  if(!nome||!total||!qtd||!mes){toast('Preencha todos os campos','err');return;}
+  const nome=document.getElementById('p-nome').value.trim(),totalRaw=parseFloat(document.getElementById('p-total').value)||0,qtd=parseInt(document.getElementById('p-qtd').value)||0,mes=mpGet('p-mes'),cat=document.getElementById('p-cat').value;
+  if(!nome||!totalRaw||!qtd||!mes){toast('Preencha todos os campos','err');return;}
+  // compra parcelada é sempre dívida: guarda negativo (a pagar)
+  const total=-round2(Math.abs(totalRaw));
   const mes_idx=strParaIdx(mes),valor_parcela=round2(total/qtd),total_r=round2(total);
   const vinculoId=parseInt(document.getElementById('p-vincular')?.value)||0;
   try{
@@ -2313,12 +2342,12 @@ async function addParcela(){
       const g=gastos.find(x=>x.id===vinculoId);
       if(g){for(let k=0;k<qtd;k++){const i=mes_idx+k;if(i<48)g.valores[i]=(g.valores[i]||0)+valor_parcela;}}
       closeOv('ov-parcela');renderTabela();renderSobraBanner();renderSobraBanner2();
-      toast(`${qtd}x de ${fmt(valor_parcela)} somadas ao gasto existente!`);
+      toast(`${qtd}x de ${fmt(Math.abs(valor_parcela))} somadas ao gasto existente!`);
     } else {
       const r=await api('POST','/parcelas',{nome,cat,total,qtd,mes_idx,valor_parcela});
       parcelas.push({id:r.id,nome,cat,total:round2(total),qtd,mesIdx:mes_idx,valorParcela:round2(valor_parcela)});
       closeOv('ov-parcela');renderTabela();renderSobraBanner();renderSobraBanner2();
-      toast(`${qtd}x de ${fmt(valor_parcela)}!`);
+      toast(`${qtd}x de ${fmt(Math.abs(valor_parcela))}!`);
     }
   }catch(e){toast('Erro: '+e.message,false);}
 }
@@ -2332,10 +2361,11 @@ async function addLanc(d,v,c,l,r){
     if(!gid){toast('Selecione um gasto fixo','err');return;}
     if(!delta){toast('Informe o valor','err');return;}
     const op=window._lnOp||'subtrair';
-    const deltaFinal=op==='subtrair'?-delta:delta;
+    const g0=gastos.find(x=>x.id===gid);
+    const valorAnterior=g0?(g0.valores[mesIdx]||0):0;
+    const deltaFinal=round2(aplicarAjuste(valorAnterior,op==='subtrair'?-delta:delta)-valorAnterior);
     try{
       const g=gastos.find(x=>x.id===gid);
-      const valorAnterior=g?(g.valores[mesIdx]||0):0;
       const res=await api('POST','/gastos/ajuste',{gasto_id:gid,idx:mesIdx,delta:deltaFinal});
       if(g)g.valores[mesIdx]=res.novo_valor;
       // registra também como lançamento para aparecer no histórico
@@ -2404,8 +2434,7 @@ function textoReverter(l){
   const{g,aproximado}=acharGastoDoAjuste(l);
   if(g){
     const atual=g.valores[l.mes_idx]||0;
-    const reverso=l.tipo_ajuste==='subtrair'?l.valor:-l.valor;
-    const novo=round2(atual+reverso);
+    const novo=desfazerAjuste(atual,l.tipo_ajuste,l.valor);
     return `Reverter ${op} em "${g.nome}"?\n${mesLabel(l.mes_idx,false)}: ${fmtS(atual)} → ${fmtS(novo)}\nO registro espelho será apagado.${aproximado?'\n(Vínculo aproximado pelo nome.)':''}`;
   }
   return `Reverter ${op} "${l.descricao}"?\nRegistro antigo sem vínculo: apaga só o espelho, o fixo NÃO muda.`;
@@ -2500,7 +2529,7 @@ function getLancsMes(idx){
 function renderTotais(){
   const sal=cfg.salario||0,parc=calcParcelasIdx(),lancIdx=calcLancIdxTudo(),ini=Math.max(0,idxTrabalho());
   for(let i=ini;i<MESES;i++){
-    const f=round2(gastos.reduce((s,g)=>s+(g.valores[i]||0),0)),pm=round2(parc[i]||0),lm=round2(lancIdx[i]||0),tot=round2(f+pm),sob=round2(sal-tot);
+    const f=round2(gastos.reduce((s,g)=>s+(g.valores[i]||0),0)),pm=round2(parc[i]||0),lm=round2(lancIdx[i]||0),tot=round2(f+pm),sob=round2(sal+tot);
     const t=document.getElementById('tot-'+i),s=document.getElementById('sob-'+i),l=document.getElementById('lanc-'+i);
     if(t)t.textContent=fmt(tot);
     if(s){s.textContent=fmt(sob);s.className=sob>=0?'':'neg';}
@@ -2822,7 +2851,7 @@ async function renderHistorico(){
     if(f){
       mesesH.push({idx:i,mesRef,label:mesLabel(i,false),fixos:round2(f.fixos),parcM:round2(f.parcelas),lancM:round2(f.lancamentos),tot:round2(f.total),sob:round2(f.sobra),sal:round2(f.salario),fechado:true,fid:f.id});
     } else {
-      const fx=round2(gastos.reduce((s,g)=>s+(g.valores[i]||0),0)),pm=round2(parc[i]||0),lm=round2(lancIdx[i]||0),tot=round2(fx+pm),sob=round2(sal-tot);
+      const fx=round2(gastos.reduce((s,g)=>s+(g.valores[i]||0),0)),pm=round2(parc[i]||0),lm=round2(lancIdx[i]||0),tot=round2(fx+pm),sob=round2(sal+tot);
       mesesH.push({idx:i,mesRef,label:mesLabel(i,false),fixos:fx,parcM:pm,lancM:lm,tot,sob,sal,fechado:false});
     }
   }
@@ -2849,7 +2878,7 @@ async function fecharMes(idx, mesRef){
     const sal=cfg.salario||0,parc=calcParcelasIdx(),lancIdx=calcLancIdxTudo();
     const fx=round2(gastos.reduce((s,g)=>s+(g.valores[idx]||0),0));
     const pm=round2(parc[idx]||0),lm=round2(lancIdx[idx]||0);
-    const tot=round2(fx+pm),sob=round2(sal-tot);
+    const tot=round2(fx+pm),sob=round2(sal+tot);
     // detalhamento simples por gasto (para auditoria futura)
     const det=gastos.filter(g=>(g.valores[idx]||0)!==0).map(g=>({nome:g.nome,cat:g.cat,valor:round2(g.valores[idx])}));
     await api('POST','/historico/fechar',{mes_idx:idx,mes_ref:mesRef,salario:sal,fixos:fx,parcelas:pm,lancamentos:lm,total:tot,sobra:sob,detalhes:JSON.stringify(det).slice(0,4000)});
@@ -2891,7 +2920,7 @@ function calcResumo(){
     const i=ini+j;
     const f=round2(gastos.reduce((s,g)=>s+(g.valores[i]||0),0));
     const pm=round2(parc[i]||0),lm=round2(lancIdx[i]||0);
-    const tot=round2(f+pm),sob=round2(sal-tot);
+    const tot=round2(f+pm),sob=round2(sal+tot);
     acum=round2(acum+Math.max(0,sob));
     return{label:mesLabel(i),full:mesLabel(i,false),sal,fixos:f,parcM:pm,lancM:lm,tot,sob,acum};
   });
@@ -2904,7 +2933,7 @@ function renderResumo(){
   <div class="metric r fade-in" style="animation-delay:.06s"><div class="metric-label">Média fixos</div><div class="metric-value">${fmt(med('fixos'))}</div></div>
   <div class="metric p fade-in" style="animation-delay:.12s"><div class="metric-label">Média parcelas</div><div class="metric-value">${fmt(med('parcM'))}</div></div>
   <div class="metric o fade-in" style="animation-delay:.18s"><div class="metric-label">Lançamentos</div><div class="metric-value">${fmt(med('lancM'))}</div></div>
-  <div class="metric g fade-in" style="animation-delay:.24s"><div class="metric-label">Média sobra</div><div class="metric-value">${fmt(med('sob'))}</div></div>
+  <div class="metric ${med('sob')>=0?'g':'r'} fade-in" style="animation-delay:.24s"><div class="metric-label">Média sobra</div><div class="metric-value">${fmt(med('sob'))}</div></div>
   <div class="metric a fade-in" style="animation-delay:.30s"><div class="metric-label">Total guardado</div><div class="metric-value">${fmt(ts)}</div></div>`;
   drawLine(document.getElementById('resumo-chart'),rows);
   document.getElementById('res-body').innerHTML=rows.map(r=>`<tr><td>${r.full}</td><td class="neu">${fmt(r.sal)}</td><td class="neg">${fmt(r.fixos)}</td><td class="pur">${r.parcM>0?fmt(r.parcM):'—'}</td><td class="o">${r.lancM>0?fmt(r.lancM):'—'}</td><td class="neg">${fmt(r.tot)}</td><td class="${r.sob>=0?'pos':'neg'}">${fmt(r.sob)}</td><td class="pos">${fmt(r.acum)}</td></tr>`).join('');
@@ -2958,7 +2987,7 @@ async function renderAdmin(){
 }
 
 // ── GRÁFICOS ──
-function drawBar(canvas,rows){const dpr=devicePixelRatio||1,W=canvas.parentElement.clientWidth||400,H=180;canvas.width=W*dpr;canvas.height=H*dpr;canvas.style.width=W+'px';canvas.style.height=H+'px';const ctx=canvas.getContext('2d');ctx.scale(dpr,dpr);const P={t:14,r:12,b:28,l:60},w=W-P.l-P.r,h=H-P.t-P.b,maxV=Math.max(...rows.map(r=>Math.max(r.tot,Math.abs(r.sob))),1),bw=Math.max(3,Math.min(28,w/rows.length-3)),gap=(w-bw*rows.length)/(rows.length+1);for(let s=0;s<=4;s++){const v=maxV/4*s,y=P.t+h-(v/maxV)*h;ctx.strokeStyle='rgba(128,128,128,.2)';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(P.l,y);ctx.lineTo(P.l+w,y);ctx.stroke();ctx.fillStyle='var(--muted)';ctx.font='9px Inter';ctx.textAlign='right';ctx.fillText(fmt(v).replace('R$ ',''),P.l-3,y+3);}rows.forEach((r,i)=>{const x=P.l+gap*(i+1)+bw*i,hg=Math.max(2,(r.tot/maxV)*h),hs=Math.max(2,(Math.abs(r.sob)/maxV)*h);ctx.fillStyle='rgba(248,113,113,.5)';ctx.fillRect(x,P.t+h-hg,bw*.47,hg);ctx.fillStyle=r.sob>=0?'rgba(34,197,94,.6)':'rgba(248,113,113,.3)';ctx.fillRect(x+bw*.53,P.t+h-hs,bw*.47,hs);ctx.fillStyle='rgba(128,128,128,.7)';ctx.font='9px Inter';ctx.textAlign='center';ctx.fillText(r.label.split(' ')[0],x+bw/2,H-P.b+11);});}
+function drawBar(canvas,rows){rows=rows.map(r=>({...r,tot:Math.abs(r.tot),sob:Math.abs(r.sob)}));const dpr=devicePixelRatio||1,W=canvas.parentElement.clientWidth||400,H=180;canvas.width=W*dpr;canvas.height=H*dpr;canvas.style.width=W+'px';canvas.style.height=H+'px';const ctx=canvas.getContext('2d');ctx.scale(dpr,dpr);const P={t:14,r:12,b:28,l:60},w=W-P.l-P.r,h=H-P.t-P.b,maxV=Math.max(...rows.map(r=>Math.max(r.tot,Math.abs(r.sob))),1),bw=Math.max(3,Math.min(28,w/rows.length-3)),gap=(w-bw*rows.length)/(rows.length+1);for(let s=0;s<=4;s++){const v=maxV/4*s,y=P.t+h-(v/maxV)*h;ctx.strokeStyle='rgba(128,128,128,.2)';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(P.l,y);ctx.lineTo(P.l+w,y);ctx.stroke();ctx.fillStyle='var(--muted)';ctx.font='9px Inter';ctx.textAlign='right';ctx.fillText(fmt(v).replace('R$ ',''),P.l-3,y+3);}rows.forEach((r,i)=>{const x=P.l+gap*(i+1)+bw*i,hg=Math.max(2,(r.tot/maxV)*h),hs=Math.max(2,(Math.abs(r.sob)/maxV)*h);ctx.fillStyle='rgba(248,113,113,.5)';ctx.fillRect(x,P.t+h-hg,bw*.47,hg);ctx.fillStyle=r.sob>=0?'rgba(34,197,94,.6)':'rgba(248,113,113,.3)';ctx.fillRect(x+bw*.53,P.t+h-hs,bw*.47,hs);ctx.fillStyle='rgba(128,128,128,.7)';ctx.font='9px Inter';ctx.textAlign='center';ctx.fillText(r.label.split(' ')[0],x+bw/2,H-P.b+11);});}
 function drawLine(canvas,rows){const dpr=devicePixelRatio||1,W=canvas.parentElement.clientWidth||600,H=220;canvas.width=W*dpr;canvas.height=H*dpr;canvas.style.width=W+'px';canvas.style.height=H+'px';const ctx=canvas.getContext('2d');ctx.scale(dpr,dpr);const P={t:18,r:16,b:32,l:64},w=W-P.l-P.r,h=H-P.t-P.b,N=rows.length,vals=rows.map(r=>r.sob),acums=rows.map(r=>r.acum),minV=Math.min(0,...vals),maxV=Math.max(...acums,...vals,1),range=maxV-minV||1,yOf=v=>P.t+h-((v-minV)/range)*h,xOf=i=>N<2?P.l+w/2:P.l+(i/(N-1))*w;for(let s=0;s<=5;s++){const v=minV+(range/5)*s,y=yOf(v);ctx.strokeStyle='rgba(128,128,128,.2)';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(P.l,y);ctx.lineTo(P.l+w,y);ctx.stroke();ctx.fillStyle='rgba(128,128,128,.7)';ctx.font='9px Inter';ctx.textAlign='right';ctx.fillText(fmt(v).replace('R$ ',''),P.l-4,y+3);}if(minV<0){const y0=yOf(0);ctx.strokeStyle='rgba(248,113,113,.3)';ctx.setLineDash([4,3]);ctx.beginPath();ctx.moveTo(P.l,y0);ctx.lineTo(P.l+w,y0);ctx.stroke();ctx.setLineDash([]);}ctx.beginPath();ctx.moveTo(xOf(0),yOf(acums[0]));rows.forEach((_,i)=>{if(i)ctx.lineTo(xOf(i),yOf(acums[i]));});ctx.lineTo(xOf(N-1),yOf(minV));ctx.lineTo(xOf(0),yOf(minV));ctx.closePath();ctx.fillStyle='rgba(96,165,250,.07)';ctx.fill();ctx.beginPath();ctx.strokeStyle='rgba(96,165,250,.45)';ctx.lineWidth=1.5;ctx.setLineDash([5,3]);rows.forEach((_,i)=>{i?ctx.lineTo(xOf(i),yOf(acums[i])):ctx.moveTo(xOf(0),yOf(acums[0]));});ctx.stroke();ctx.setLineDash([]);ctx.beginPath();ctx.moveTo(xOf(0),yOf(vals[0]));rows.forEach((_,i)=>{if(i)ctx.lineTo(xOf(i),yOf(vals[i]));});ctx.lineTo(xOf(N-1),yOf(Math.max(minV,0)));ctx.lineTo(xOf(0),yOf(Math.max(minV,0)));ctx.closePath();ctx.fillStyle='rgba(34,197,94,.1)';ctx.fill();ctx.beginPath();ctx.strokeStyle=getComputedStyle(document.documentElement).getPropertyValue('--green').trim()||'#22c55e';ctx.lineWidth=2;rows.forEach((_,i)=>{i?ctx.lineTo(xOf(i),yOf(vals[i])):ctx.moveTo(xOf(0),yOf(vals[0]));});ctx.stroke();const step=Math.max(1,Math.floor(N/8));ctx.fillStyle='rgba(128,128,128,.8)';ctx.font='9px Inter';ctx.textAlign='center';for(let i=0;i<N;i+=step)ctx.fillText(rows[i].label,xOf(i),H-P.b+12);}
 
 
@@ -3588,21 +3617,24 @@ function gerarRelatorio(){
 
   // O valor do fixo no mês JÁ inclui os ajustes, então ele é o final.
   // totalAjustes (somas − descontos) serve só p/ recuperar a base original.
-  let totalAjustes = 0;
+  // Convenção: negativo = a pagar. Base = atual + sinal*(descontos − acréscimos).
+  let totalAjustes = 0, sumSub = 0, sumSom = 0;
   lancs.forEach(l => {
     const sub = l.tipo_ajuste==='subtrair' || (!l.tipo_ajuste && /^desconto\s*:/i.test(l.descricao||''));
     const som = l.tipo_ajuste==='somar' || (!l.tipo_ajuste && /^acr[eé]scimo\s*:/i.test(l.descricao||''));
-    if(sub) totalAjustes -= l.valor;
-    else if(som) totalAjustes += l.valor;
+    if(sub){ totalAjustes -= l.valor; sumSub += l.valor; }
+    else if(som){ totalAjustes += l.valor; sumSom += l.valor; }
   });
-  const valorOriginal = round2(valorBase - totalAjustes);
+  const valorOriginal = valorBase===0 ? round2(valorBase - totalAjustes)
+    : round2(valorBase + (valorBase<0?-1:1)*(sumSub - sumSom));
   const valorFinal = valorBase;
+  const fS=v=>(v>0?'+':'')+`R$ ${Math.abs(v).toFixed(2).replace('.',',')}`+(v>0?' (a receber)':'');
 
   // texto curto, pronto p/ copiar e colar no WhatsApp
   const linhas = [];
   linhas.push(`*${g.nome} — ${mesNome}*`);
   if(lancs.length > 0){
-    linhas.push(`Base: R$ ${valorOriginal.toFixed(2).replace('.',',')}`);
+    linhas.push(`Base: ${fS(valorOriginal)}`);
     lancs.forEach(l => {
       const d = new Date(l.criado_em);
       const dia = d.toLocaleDateString('pt-BR', {day:'2-digit', month:'2-digit'});
@@ -3613,9 +3645,9 @@ function gerarRelatorio(){
       if(l.motivo) linha += ` — ${l.motivo}`;
       linhas.push(linha);
     });
-    linhas.push(`*Final: R$ ${valorFinal.toFixed(2).replace('.',',')}*`);
+    linhas.push(`*Final: ${fS(valorFinal)}*`);
   } else {
-    linhas.push(`*Valor: R$ ${valorFinal.toFixed(2).replace('.',',')}*`);
+    linhas.push(`*Valor: ${fS(valorFinal)}*`);
   }
 
   relatorioTexto = linhas.join('\n');

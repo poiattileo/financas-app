@@ -283,7 +283,7 @@ def criar_gasto(data: GastoInput, user=Depends(verificar_token)):
     cur.execute("INSERT INTO gastos (user_id,nome,cat) VALUES (%s,%s,%s)", (user["id"],data.nome,data.cat))
     gid = cur.lastrowid
     for i in range(data.mes_inicio_idx, min(data.mes_fim_idx+1,48)):
-        if data.valor > 0:
+        if data.valor != 0:
             cur.execute("INSERT INTO gasto_valores (gasto_id,idx,valor) VALUES (%s,%s,%s)", (gid,i,data.valor))
     cur.close(); db.close(); return {"id": gid}
 
@@ -409,8 +409,14 @@ def reverter_lancamento(lid: int, user=Depends(verificar_token)):
             cur.execute("SELECT valor FROM gasto_valores WHERE gasto_id=%s AND idx=%s", (g["id"], mes_idx))
             row = cur.fetchone()
             atual = float(row["valor"]) if row else 0.0
-            reverso = valor if tipo == "subtrair" else -valor  # desfaz o delta original
-            novo = round(atual + reverso, 2)
+            # reverso do ajuste (convenção: negativo = a pagar):
+            # desfaz desconto afastando de zero; desfaz acréscimo aproximando.
+            if tipo == "subtrair":
+                mag = round(abs(atual) + valor, 2)
+                novo = -mag if atual <= 0 else mag
+            else:
+                mag = max(0.0, round(abs(atual) - valor, 2))
+                novo = 0.0 if mag == 0 else (-mag if atual < 0 else mag)
             valor_antes, valor_depois = atual, novo
             if novo == 0:
                 cur.execute("DELETE FROM gasto_valores WHERE gasto_id=%s AND idx=%s", (g["id"], mes_idx))
