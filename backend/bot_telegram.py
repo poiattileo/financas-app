@@ -1080,7 +1080,7 @@ def processar_callback(chat_id, callback_data):
                     "• Se for um gasto fixo já cadastrado → ajusta ele (use `-` p/ subtrair)\n"
                     "• Se for novo → cria avulso\n"
                     "• No fim eu mostro antes → depois p/ confirmar e pergunto da foto 📎\n\n"
-                    "*Exemplo:*\n```\nCoxinha\n12,50\noutubro\nLanche da tarde\n```")
+                    "*Exemplo:*\n```\nNubank\n12,50\noutubro\nLanche da tarde\n```")
         return ("💳 *Compra parcelada*\n"
                 "Envie assim:\n"
                 "```\nNome do gasto\nValor total\nQuantas parcelas\nMês início (opcional)\nMotivo (opcional)\n```\n"
