@@ -1040,6 +1040,7 @@ input[type=number]{-moz-appearance:textfield}
           <span style="color:var(--muted)">=</span>
           <span id="pv-depois" style="font-weight:700;font-size:16px"></span>
         </div>
+        <div id="pv-debug" style="font-size:10px;color:var(--hint);margin-top:6px;font-family:var(--mono)"></div>
       </div>
 
     </div><!-- fim bloco fixo -->
@@ -1382,7 +1383,7 @@ let historicoFechados=[];
 let repetirLanc=null,aportarMetaId=null,editUserId=null,editCatId=null,recSel='nunca',repSel='agora',corSel='green';
 
 // ── UTILS ──
-window.FIN_BUILD='2026-09-26-ajuste';console.log('[financas] build '+window.FIN_BUILD);
+window.FIN_BUILD='2026-09-26-ajuste2';console.log('[financas] build '+window.FIN_BUILD);
 function round2(v){ return Math.round((Number(v)||0)*100)/100; }
 const fmt=v=>'R$ '+Math.abs(round2(v)).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
 // número digitado em pt-BR: aceita "30", "30.5", "30,5" e "1.234,56"
@@ -2150,6 +2151,8 @@ function previewAjuste(){
   elDelta.textContent=fmt(delta);
   elDepois.textContent=fmt(novo);
   elDepois.style.color=op==='subtrair'?'var(--green)':'var(--red)';
+  const elDbg=document.getElementById('pv-debug');
+  if(elDbg)elDbg.textContent=`[tmp-debug] build=${window.FIN_BUILD||'?'} mesIdx=${mesIdxSel} vRaw=${JSON.stringify(g.valores[mesIdxSel])} dRaw=${JSON.stringify(document.getElementById('ln-fixo-valor')?.value)} op=${op}`;
   prev.style.display='';
 }
 function openModalMeta(){corSel='green';document.querySelectorAll('.cor-chip').forEach((c,i)=>c.classList.toggle('active',i===0));['mt-nome','mt-alvo'].forEach(id=>document.getElementById(id).value='');openOv('ov-meta');setTimeout(()=>document.getElementById('mt-nome').focus(),80);}
