@@ -1756,14 +1756,17 @@ async function iniciarApp(){
   }
   await carregarTudo();
 }
+async function buscarTudo(){
+  return Promise.all([
+    api('GET','/config'),api('GET','/gastos'),api('GET','/parcelas'),
+    api('GET','/lancamentos'),api('GET','/metas'),api('GET','/comparativo'),
+    api('GET','/categorias'),api('GET','/lancamentos-todos'),
+    api('GET','/historico').catch(()=>[])
+  ]);
+}
 async function carregarTudo(){
   try{
-    const[c,g,p,l,m,comp,cats,todos,hist]=await Promise.all([
-      api('GET','/config'),api('GET','/gastos'),api('GET','/parcelas'),
-      api('GET','/lancamentos'),api('GET','/metas'),api('GET','/comparativo'),
-      api('GET','/categorias'),api('GET','/lancamentos-todos'),
-      api('GET','/historico').catch(()=>[])
-    ]);
+    const[c,g,p,l,m,comp,cats,todos,hist]=await buscarTudo();
     cfg=c;gastos=g;parcelas=p;lancamentos=l;metas=m;comparativo=comp;categorias=cats;
     todosLancamentos=todos||[];
     historicoFechados=hist||[];
@@ -1776,8 +1779,52 @@ async function carregarTudo(){
     atualizarSalDisplay();atualizarBadge();
     popularSelect('g-cat','gasto');popularSelect('p-cat','gasto');popularSelect('ln-cat','lancamento');
     renderTabela();renderSobraBanner();
+    _autoSign=assinaturaDados();
   }catch(e){toast('Erro ao carregar: '+e.message,false);}
 }
+
+// ── AUTO-ATUALIZAÇÃO ──
+// Se o bot (ou outra sessão) mudar os dados, a tela atualiza sozinha em ~15s, sem F5.
+// Não atualiza com modal aberto nem enquanto digita/edita (p/ não perder nada).
+let _autoSign='';
+const AUTO_MS=15000;
+function assinaturaDados(){
+  try{return JSON.stringify([cfg,gastos,parcelas,lancamentos,metas,comparativo,categorias,todosLancamentos,historicoFechados]);}
+  catch(e){return '';}
+}
+async function verificarAtualizacoes(){
+  if(!token)return;
+  const shell=document.getElementById('app-shell');
+  if(!shell||!shell.classList.contains('visible'))return;
+  if(document.hidden)return;
+  if(document.querySelector('.overlay.open'))return;
+  const ae=document.activeElement;
+  if(ae&&/^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName))return;
+  let dados;
+  try{dados=await buscarTudo();}
+  catch(e){return;} // silencioso: sem toast e sem derrubar sessão
+  const[c,g,p,l,m,comp,cats,todos,hist]=dados;
+  const novo=JSON.stringify([c,g,p,l,m,comp,cats,todos,hist]);
+  if(!_autoSign||novo===_autoSign)return;
+  cfg=c;gastos=g;parcelas=p;lancamentos=l;metas=m;comparativo=comp;categorias=cats;
+  todosLancamentos=todos||[];historicoFechados=hist||[];
+  _autoSign=novo;
+  atualizarSalDisplay();atualizarBadge();
+  popularSelect('g-cat','gasto');popularSelect('p-cat','gasto');popularSelect('ln-cat','lancamento');
+  const tab=document.querySelector('.page.active')?.id;
+  const rola=(sel,fn)=>{const el=sel?document.querySelector(sel):null;const st=el?el.scrollTop:0;
+    const r=fn();const rest=()=>{if(el)el.scrollTop=st;};
+    if(r&&r.then)r.then(rest);else rest();};
+  rola('#table-wrap',()=>{renderTabela();renderSobraBanner();renderSobraBanner2();renderTotais();});
+  if(tab==='tab-lancamentos')rola('#lanc-wrap',renderLancamentos);
+  else if(tab==='tab-lrapidos')rola('.lr-wrap',aplicarFiltrosLR);
+  else if(tab==='tab-metas')rola('#metas-wrap',renderMetas);
+  else if(tab==='tab-comparativo')rola('#comp-wrap',renderComparativo);
+  else if(tab==='tab-historico')rola('#hist-wrap',renderHistorico);
+  else if(tab==='tab-anotacoes')rola('#anot-wrap',()=>renderAnotacoes(true));
+  else if(tab==='tab-resumo')rola('.resumo-wrap',renderResumo);
+}
+setInterval(verificarAtualizacoes, AUTO_MS);
 
 // ── TABS ──
 function goTab(id){
@@ -2495,9 +2542,9 @@ function ehAtrasado(it,k,pago){
 }
 function esc(s){return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 
-async function renderAnotacoes(){
+async function renderAnotacoes(silencioso=false){
   const wrap=document.getElementById('anot-wrap');
-  wrap.innerHTML='<div class="loading"><div class="spinner"></div>Carregando...</div>';
+  if(!silencioso)wrap.innerHTML='<div class="loading"><div class="spinner"></div>Carregando...</div>';
   try{anotacoes=await api('GET','/anotacoes');}catch(e){anotacoes=[];}
   if(!anotacoes.length){wrap.innerHTML='<div class="anot-empty">Nenhuma conta a receber ainda.<br>Crie uma (ex: Airbnb) e adicione as pessoas.</div>';return;}
   // Resumo geral (só lembrete — não soma em salário/totais)
