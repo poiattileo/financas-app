@@ -1948,12 +1948,17 @@ async function reabrirMesRef(mesRef){
   return true;
 }
 async function mudarMes(delta){
-  alert('DEBUG clique: delta='+delta+' | mes_inicio='+cfg.mes_inicio+' | build='+window.FIN_BUILD);
   if(!cfg.mes_inicio){toast('Mês inicial não definido','err');return;}
   const[y,m]=cfg.mes_inicio.split('-').map(Number);
   const d=new Date(y,m-1+delta,1);
   const novo=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
   if(novo===cfg.mes_inicio)return;
+  if(delta>0){
+    // não anda além do mês de trabalho (hoje+1): fora da janela não há o que fechar
+    const n=new Date(),wr=new Date(n.getFullYear(),n.getMonth()+1,1);
+    const wrRef=`${wr.getFullYear()}-${String(wr.getMonth()+1).padStart(2,'0')}`;
+    if(novo>wrRef){toast(`Só dá pra avançar até ${mesRefParaLabel(wrRef)}`,'err');return;}
+  }
   try{
     let refFechado=null;
     if(delta>0){
@@ -1976,7 +1981,7 @@ async function mudarMes(delta){
     renderLancamentos();
     atualizarBadge();atualizarMesTrabLabel();
     toast(delta>0?`🔒 ${mesRefParaLabel(refFechado)} fechado!`:`↩ ${mesRefParaLabel(refAberto||novo)}`);
-  }catch(e){toast('Erro: '+e.message,false);alert('DEBUG ERRO: '+e.message);}
+  }catch(e){toast('Erro: '+e.message,false);}
 }
 async function trocarSenha(){const atual=document.getElementById('cfg-s1').value,nova=document.getElementById('cfg-s2').value,conf=document.getElementById('cfg-s3').value,errEl=document.getElementById('cfg-serr');errEl.classList.remove('show');if(!atual||!nova){errEl.textContent='Preencha todos os campos';errEl.classList.add('show');return;}if(nova!==conf){errEl.textContent='As senhas não coincidem';errEl.classList.add('show');return;}if(nova.length<6){errEl.textContent='Mínimo 6 caracteres';errEl.classList.add('show');return;}try{await api('PUT','/senha',{senha_atual:atual,senha_nova:nova});['cfg-s1','cfg-s2','cfg-s3'].forEach(id=>document.getElementById(id).value='');toast('Senha alterada!');}catch(e){errEl.textContent=e.message;errEl.classList.add('show');}}
 
@@ -2835,8 +2840,8 @@ async function renderHistorico(){
   mesesH.sort((a,b)=>a.mesRef.localeCompare(b.mesRef));
   if(!mesesH.length){wrap.innerHTML='<div class="hist-empty">Nenhum mês no histórico ainda.<br>Pague as contas e clique em “Fechar mês” para congelá-lo aqui.</div>';return;}
   const mesTrab=it<MESES?mesLabel(it,false):'—';
-  const cards=mesesH.map((m,mi)=>`<div class="hist-card fade-in" style="animation-delay:${mi*0.05}s;border-top:3px solid ${m.sob>=0?'var(--green)':'var(--red)'}"><div class="hc-mes">${m.label} ${m.fechado?'<span style="font-size:9px;background:var(--green-bg);color:var(--green);border-radius:4px;padding:1px 5px;margin-left:4px">fechado 🔒</span>':'<span style="font-size:9px;background:var(--amber-bg);color:var(--amber);border-radius:4px;padding:1px 5px;margin-left:4px">aberto</span>'}</div><div class="hc-sobra ${m.sob>=0?'pos':'neg'}">${fmt(m.sob)}</div><div class="hc-detail">Total: ${fmt(m.tot)}</div><div style="margin-top:6px">${m.fechado?`<button class="btn btn-ghost" style="font-size:10px;padding:3px 8px" onclick="reabrirMes(${m.fid})">↩ Reabrir</button>`:`<button class="btn btn-primary" style="font-size:10px;padding:3px 8px" onclick="fecharMes(${m.idx},'${m.mesRef}')">🔒 Fechar mês</button>`}</div></div>`).join('');
-  const linhas=mesesH.map(m=>`<tr><td>${m.label}${m.fechado?' 🔒':''}</td><td class="neu">${fmt(m.sal)}</td><td class="neg">${fmt(m.fixos)}</td><td class="pur">${m.parcM>0?fmt(m.parcM):'—'}</td><td class="o">${m.lancM>0?fmt(m.lancM):'—'}</td><td class="neg">${fmt(m.tot)}</td><td class="${m.sob>=0?'pos':'neg'}">${fmt(m.sob)}</td><td>${m.fechado?`<button class="btn btn-ghost" style="font-size:10px;padding:2px 7px" onclick="reabrirMes(${m.fid})">Reabrir</button>`:`<button class="btn btn-primary" style="font-size:10px;padding:2px 7px" onclick="fecharMes(${m.idx},'${m.mesRef}')">Fechar</button>`}</td></tr>`).join('');
+  const cards=mesesH.map((m,mi)=>`<div class="hist-card fade-in" style="animation-delay:${mi*0.05}s;border-top:3px solid ${m.sob>=0?'var(--green)':'var(--red)'}"><div class="hc-mes">${m.label} ${m.fechado?'<span style="font-size:9px;background:var(--green-bg);color:var(--green);border-radius:4px;padding:1px 5px;margin-left:4px">fechado 🔒</span>':'<span style="font-size:9px;background:var(--amber-bg);color:var(--amber);border-radius:4px;padding:1px 5px;margin-left:4px">aberto</span>'}</div><div class="hc-sobra ${m.sob>=0?'pos':'neg'}">${fmt(m.sob)}</div><div class="hc-detail">Total: ${fmt(m.tot)}</div><div style="margin-top:6px">${m.fechado?`<button class="btn btn-ghost" style="font-size:10px;padding:3px 8px" onclick="reabrirMes(${m.fid})">↩ Reabrir</button> <button class="btn btn-ghost" style="font-size:10px;padding:3px 8px" onclick="restaurarMes(${m.fid})">⤺ Restaurar</button>`:`<button class="btn btn-primary" style="font-size:10px;padding:3px 8px" onclick="fecharMes(${m.idx},'${m.mesRef}')">🔒 Fechar mês</button>`}</div></div>`).join('');
+  const linhas=mesesH.map(m=>`<tr><td>${m.label}${m.fechado?' 🔒':''}</td><td class="neu">${fmt(m.sal)}</td><td class="neg">${fmt(m.fixos)}</td><td class="pur">${m.parcM>0?fmt(m.parcM):'—'}</td><td class="o">${m.lancM>0?fmt(m.lancM):'—'}</td><td class="neg">${fmt(m.tot)}</td><td class="${m.sob>=0?'pos':'neg'}">${fmt(m.sob)}</td><td>${m.fechado?`<button class="btn btn-ghost" style="font-size:10px;padding:2px 7px" onclick="reabrirMes(${m.fid})">Reabrir</button> <button class="btn btn-ghost" style="font-size:10px;padding:2px 7px" onclick="restaurarMes(${m.fid})">Restaurar</button>`:`<button class="btn btn-primary" style="font-size:10px;padding:2px 7px" onclick="fecharMes(${m.idx},'${m.mesRef}')">Fechar</button>`}</td></tr>`).join('');
   wrap.innerHTML=`<div class="section"><div class="sec-title">Mês de trabalho: ${mesTrab} <span class="sec-badge">${mesesH.length} no histórico</span></div><div style="font-size:12px;color:var(--muted);margin-bottom:.9rem">Feche um mês para congelar os valores — ele sai da tela principal e fica guardado aqui. Meses “abertos” ainda refletem edições atuais.</div><div class="hist-cards">${cards}</div></div>
     <div class="section"><div class="sec-title">Gastos × Sobra</div><canvas id="hist-chart"></canvas></div>
     <div class="section"><div class="sec-title">Detalhamento</div><div style="overflow-x:auto"><table class="hist-table"><thead><tr><th>Mês</th><th>Salário</th><th>Fixos</th><th>Parcelas</th><th>Lançamentos</th><th>Total</th><th>Sobra</th><th></th></tr></thead><tbody>${linhas}</tbody></table></div></div>`;
@@ -2866,6 +2871,21 @@ async function reabrirMes(fid){
     historicoFechados=await api('GET','/historico').catch(()=>[]);
     renderHistorico();atualizarBadge();
     toast('Mês reaberto');
+  }catch(e){toast('Erro: '+e.message,false);}
+}
+
+async function restaurarMes(fid){
+  const h=historicoFechados.find(x=>x.id===fid);
+  if(!h){toast('Mês não encontrado','err');return;}
+  let det=[];
+  try{det=JSON.parse(h.detalhes||'[]');}catch(e){det=[];}
+  if(!confirm(`Restaurar ${mesRefParaLabel(h.mes_ref)} na planilha?\n${det.length} gasto(s) voltam aos valores congelados (substituem os atuais).`))return;
+  try{
+    const r=await api('POST',`/historico/${fid}/restaurar`,{});
+    await carregarTudo();
+    renderTabela();renderSobraBanner();renderSobraBanner2();renderLancamentos();
+    atualizarBadge();atualizarMesTrabLabel();renderHistorico();
+    toast(`Restaurado! ${r.restaurados} valor(es).`+(r.ignorados&&r.ignorados.length?` (${r.ignorados.length} gasto(s) não existem mais)`:''));
   }catch(e){toast('Erro: '+e.message,false);}
 }
 

@@ -218,7 +218,9 @@ def update_mes_inicio(data: ConfigInput, user=Depends(verificar_token)):
     offset = (yn - ya) * 12 + (mn - ma)
     if offset != 0:
         # Reposiciona gasto_valores preservando a data de calendário:
-        # novo_idx = antigo_idx - offset (ex: base jan->fev, o que era idx1/agosto vira idx0)
+        # novo_idx = antigo_idx - offset (ex: base jan->fev, o que era idx1 vira idx0).
+        # TUDO é preservado (inclusive fora de 0..47): voltar/avançar nunca apaga
+        # nada — só muda o que aparece na janela de 48 meses.
         cur.execute("SELECT id FROM gastos WHERE user_id=%s", (user["id"],))
         gids = [r["id"] for r in cur.fetchall()]
         for gid in gids:
@@ -226,9 +228,7 @@ def update_mes_inicio(data: ConfigInput, user=Depends(verificar_token)):
             vals = {r["idx"]: float(r["valor"]) for r in cur.fetchall()}
             novos = {}
             for old_idx, v in vals.items():
-                ni = old_idx - offset
-                if 0 <= ni < 48:
-                    novos[ni] = v
+                novos[old_idx - offset] = v
             cur.execute("DELETE FROM gasto_valores WHERE gasto_id=%s", (gid,))
             for ni, v in novos.items():
                 cur.execute("INSERT INTO gasto_valores (gasto_id,idx,valor) VALUES (%s,%s,%s)", (gid, ni, v))
@@ -271,7 +271,9 @@ def listar_gastos(user=Depends(verificar_token)):
     for g in gastos:
         cur.execute("SELECT idx, valor FROM gasto_valores WHERE gasto_id=%s ORDER BY idx", (g["id"],))
         vals = cur.fetchall(); valores = [0.0]*48
-        for r in vals: valores[r["idx"]] = float(r["valor"])
+        for r in vals:
+            if 0 <= r["idx"] < 48:
+                valores[r["idx"]] = float(r["valor"])
         g["valores"] = valores
     cur.close(); db.close(); return gastos
 
@@ -572,6 +574,51 @@ def reabrir_mes(hid: int, user=Depends(verificar_token)):
     db = get_db(); cur = db.cursor()
     cur.execute("DELETE FROM historico_meses WHERE id=%s AND user_id=%s", (hid, user["id"]))
     cur.close(); db.close(); return {"ok": True}
+
+@app.post("/api/historico/{hid}/restaurar")
+def restaurar_snapshot(hid: int, user=Depends(verificar_token)):
+    """Replay dos valores congelados (detalhes) de volta p/ a planilha,
+    no mês correspondente ao mes_ref dentro do mapeamento atual."""
+    import json
+    db = get_db(); cur = db.cursor(dictionary=True)
+    cur.execute("SELECT * FROM historico_meses WHERE id=%s AND user_id=%s", (hid, user["id"]))
+    h = cur.fetchone()
+    if not h:
+        cur.close(); db.close(); raise HTTPException(status_code=404, detail="Mês não encontrado")
+    cur.execute("SELECT mes_inicio FROM usuarios WHERE id=%s", (user["id"],))
+    mi = ((cur.fetchone() or {}).get("mes_inicio")) or ""
+    if not mi or len(mi) < 7:
+        cur.close(); db.close(); raise HTTPException(status_code=400, detail="Mês inicial não definido")
+    try:
+        y0, m0 = map(int, mi.split("-"))
+        y, m = map(int, h["mes_ref"].split("-"))
+    except Exception:
+        cur.close(); db.close(); raise HTTPException(status_code=400, detail="Referência de mês inválida")
+    idx = (y - y0) * 12 + (m - m0)
+    try:
+        det = json.loads(h.get("detalhes") or "[]")
+    except Exception:
+        det = []
+    cur.execute("SELECT id, nome FROM gastos WHERE user_id=%s", (user["id"],))
+    por_nome = {((g["nome"] or "").strip().lower()): g["id"] for g in cur.fetchall()}
+    restaurados = 0; ignorados = []
+    for d in det:
+        gid = por_nome.get(str((d or {}).get("nome") or "").strip().lower())
+        if not gid:
+            ignorados.append((d or {}).get("nome")); continue
+        try:
+            v = round(float((d or {}).get("valor") or 0), 2)
+        except Exception:
+            ignorados.append((d or {}).get("nome")); continue
+        if v == 0:
+            cur.execute("DELETE FROM gasto_valores WHERE gasto_id=%s AND idx=%s", (gid, idx))
+        else:
+            cur.execute("INSERT INTO gasto_valores (gasto_id,idx,valor) VALUES (%s,%s,%s) ON DUPLICATE KEY UPDATE valor=%s",
+                (gid, idx, v, v))
+        restaurados += 1
+    cur.close(); db.close()
+    return {"ok": True, "mes_ref": h["mes_ref"], "idx": idx,
+            "restaurados": restaurados, "ignorados": ignorados}
 
 # ── ANOTAÇÕES / A RECEBER (controle paralelo: NÃO entra em nenhum total) ──
 # Isolado por design: nenhum endpoint aqui é lido por /api/comparativo,
