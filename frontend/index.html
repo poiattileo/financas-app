@@ -280,6 +280,29 @@ table.admin-table tr:hover td{background:var(--surface)}
 .cor-chip{width:24px;height:24px;border-radius:50%;cursor:pointer;border:2px solid transparent;transition:.15s}
 .cor-chip.active{border-color:var(--text);transform:scale(1.15)}
 
+/* MONTH PICKER (mês/ano) — digita MM/AAAA ou clica e escolhe no calendário */
+.mp-wrap{position:relative;width:100%}
+.mp-wrap input.mp-input{width:100%;background:var(--input-bg);border:1px solid var(--border);border-radius:7px;padding:8px 38px 8px 10px;color:var(--text);font-size:16px;outline:none;font-family:'Inter',sans-serif;transition:.15s}
+.mp-wrap input.mp-input:focus{border-color:var(--blue)}
+.mp-wrap input.mp-input.mp-erro{border-color:var(--red)}
+.mp-btn{position:absolute;right:4px;top:50%;transform:translateY(-50%);width:30px;height:30px;border:none;background:transparent;font-size:16px;cursor:pointer;border-radius:6px;display:flex;align-items:center;justify-content:center;opacity:.8;transition:.15s}
+.mp-btn:hover{background:var(--surface);opacity:1}
+.mp-pop{position:absolute;top:calc(100% + 6px);left:0;right:0;min-width:260px;background:var(--card);border:1px solid var(--border2);border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.45);z-index:120;padding:10px;display:none}
+.mp-pop.open{display:block;animation:fadeInUp .18s ease}
+.mp-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.mp-nav{width:28px;height:28px;border-radius:7px;border:1px solid var(--border);background:transparent;color:var(--text);font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.mp-nav:hover{border-color:var(--blue);color:var(--blue)}
+.mp-ano{font-size:14px;font-weight:700;font-family:var(--mono)}
+.mp-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.mp-mes{padding:8px 4px;border-radius:8px;border:1px solid var(--border);background:var(--input-bg);color:var(--text);font-size:12px;font-weight:500;cursor:pointer;transition:.12s;font-family:'Inter',sans-serif;text-align:center}
+.mp-mes small{display:block;font-size:9px;color:var(--hint);font-weight:400}
+.mp-mes:hover{border-color:var(--blue);color:var(--blue)}
+.mp-mes.sel{background:var(--blue-bg);border-color:var(--blue);color:var(--blue);font-weight:700}
+.mp-foot{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+.mp-quick{flex:1;padding:6px 4px;border-radius:7px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:11px;cursor:pointer;white-space:nowrap;font-family:'Inter',sans-serif}
+.mp-quick:hover{border-color:var(--green);color:var(--green)}
+.mp-quick.warn:hover{border-color:var(--red);color:var(--red)}
+
 /* TOGGLE TEMA */
 .theme-toggle{cursor:pointer;padding:4px 8px;border-radius:6px;border:1px solid var(--border);background:none;color:var(--muted);font-size:14px;transition:.15s}
 .theme-toggle:hover{background:var(--card);color:var(--text)}
@@ -841,8 +864,8 @@ input[type=number]{-moz-appearance:textfield}
       <div class="field"><label>Valor mensal (R$)</label><input id="g-valor" type="number" placeholder="0,00" step="0.01" inputmode="decimal" oninput="previewGasto()"></div>
     </div>
     <div class="field-row">
-      <div class="field"><label>Mês início</label><input type="month" id="g-inicio" oninput="previewGasto()"></div>
-      <div class="field"><label>Mês fim</label><input type="month" id="g-fim" oninput="previewGasto()"></div>
+      <div class="field"><label>Mês início</label><div class="mp-wrap"><input type="text" id="g-inicio" class="mp-input" placeholder="MM/AAAA" inputmode="numeric" autocomplete="off" oninput="onMpDigitar('g-inicio')" onclick="abrirMp('g-inicio',event)"><button type="button" class="mp-btn" onclick="abrirMp('g-inicio',event)" title="Escolher mês">📅</button></div></div>
+      <div class="field"><label>Mês fim <span style="font-weight:400;color:var(--hint)">(vazio = ∞)</span></label><div class="mp-wrap"><input type="text" id="g-fim" class="mp-input" placeholder="∞ sem fim" inputmode="numeric" autocomplete="off" oninput="onMpDigitar('g-fim')" onclick="abrirMp('g-fim',event)"><button type="button" class="mp-btn" onclick="abrirMp('g-fim',event)" title="Escolher mês">📅</button></div></div>
     </div>
     <div class="preview-box" id="g-preview">Preencha os campos...</div>
     <div class="modal-actions">
@@ -863,7 +886,7 @@ input[type=number]{-moz-appearance:textfield}
       <div class="field"><label>Nº de parcelas</label><input id="p-qtd" type="number" placeholder="12" min="1" max="48" inputmode="numeric" oninput="previewParcela()"></div>
     </div>
     <div class="field-row">
-      <div class="field"><label>Mês da 1ª parcela</label><input id="p-mes" type="month" oninput="previewParcela()"></div>
+      <div class="field"><label>Mês da 1ª parcela</label><div class="mp-wrap"><input id="p-mes" type="text" class="mp-input" placeholder="MM/AAAA" inputmode="numeric" autocomplete="off" oninput="onMpDigitar('p-mes')" onclick="abrirMp('p-mes',event)"><button type="button" class="mp-btn" onclick="abrirMp('p-mes',event)" title="Escolher mês">📅</button></div></div>
       <div class="field"><label>Categoria</label><select id="p-cat" onchange="previewParcela()"></select></div>
     </div>
     <div class="field">
@@ -1111,7 +1134,7 @@ input[type=number]{-moz-appearance:textfield}
       <div class="field"><label>Valor total (R$)</label><input id="ai-valor" type="number" placeholder="0,00" step="0.01" inputmode="decimal"></div>
       <div class="field"><label>Meses</label><input id="ai-qtd" type="number" placeholder="1" min="1" max="120" inputmode="numeric"></div>
     </div>
-    <div class="field"><label>Mês da 1ª cobrança</label><input type="month" id="ai-mes"></div>
+    <div class="field"><label>Mês da 1ª cobrança</label><div class="mp-wrap"><input type="text" id="ai-mes" class="mp-input" placeholder="MM/AAAA" inputmode="numeric" autocomplete="off" oninput="onMpDigitar('ai-mes')" onclick="abrirMp('ai-mes',event)"><button type="button" class="mp-btn" onclick="abrirMp('ai-mes',event)" title="Escolher mês">📅</button></div></div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeOv('ov-anotacao-item')">Cancelar</button>
       <button class="btn btn-primary" onclick="addAnotacaoItem()">Adicionar</button>
@@ -1129,7 +1152,7 @@ input[type=number]{-moz-appearance:textfield}
       <div class="field"><label>Valor total (R$)</label><input id="ae-valor" type="number" placeholder="0,00" step="0.01" inputmode="decimal"></div>
       <div class="field"><label>Meses</label><input id="ae-qtd" type="number" min="1" max="120" inputmode="numeric" oninput="desenharMesesEdicao()"></div>
     </div>
-    <div class="field"><label>Mês da 1ª cobrança</label><input type="month" id="ae-mes" onchange="desenharMesesEdicao()"></div>
+    <div class="field"><label>Mês da 1ª cobrança</label><div class="mp-wrap"><input type="text" id="ae-mes" class="mp-input" placeholder="MM/AAAA" inputmode="numeric" autocomplete="off" oninput="onMpDigitar('ae-mes')" onclick="abrirMp('ae-mes',event)"><button type="button" class="mp-btn" onclick="abrirMp('ae-mes',event)" title="Escolher mês">📅</button></div></div>
     <div class="field"><label>Valores por mês (opcional — ex: Airbnb varia)</label>
       <div id="ae-meses" style="background:var(--input-bg);border:1px solid var(--border);border-radius:7px;padding:4px 10px;max-height:220px;overflow-y:auto"></div>
       <div style="font-size:11px;color:var(--muted);margin-top:4px">💾 salva o valor do mês · ⭕/✅ marca ou desmarca como pago</div>
@@ -1260,7 +1283,7 @@ input[type=number]{-moz-appearance:textfield}
     <div class="cfg-row">
       <div class="cfg-label">Mês de início do planejamento</div>
       <div class="cfg-sub">Você trabalha com o mês seguinte (ex: em setembro planeja outubro). Meses anteriores ao mês de trabalho saem da tela principal e vão para o Histórico.</div>
-      <div class="field" style="margin-top:8px;margin-bottom:0"><input type="month" id="cfg-mes" onchange="previewCfg()"></div>
+      <div class="field" style="margin-top:8px;margin-bottom:0"><div class="mp-wrap"><input type="text" id="cfg-mes" class="mp-input" placeholder="MM/AAAA" inputmode="numeric" autocomplete="off" oninput="onMpDigitar('cfg-mes')" onclick="abrirMp('cfg-mes',event)"><button type="button" class="mp-btn" onclick="abrirMp('cfg-mes',event)" title="Escolher mês">📅</button></div></div>
       <div id="cfg-preview" style="font-size:12px;color:var(--amber);margin-top:4px"></div>
       <button class="btn btn-primary" onclick="salvarCfg()" style="margin-top:10px">Salvar</button>
     </div>
@@ -1323,6 +1346,7 @@ input[type=number]{-moz-appearance:textfield}
     <span id="ct-total-val"></span>
   </div>
 </div>
+<div class="mp-pop" id="mp-pop"></div>
 
 <script>
 const MESES=48,API='/api';
@@ -1380,6 +1404,190 @@ async function desfazerUltimoLanc(){
     }
   }catch(e){toast('Erro ao desfazer: '+e.message,false);}
 }
+// ── MONTH PICKER (digita MM/AAAA + clica e escolhe no calendário) ──
+// Display: MM/AAAA (fácil de digitar) · Interno: AAAA-MM (compatível com strParaIdx/idxParaStr)
+const MP_MESES=['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+let _mpAlvo=null,_mpAno=null;
+function isoParaBR(iso){
+  if(!iso||iso.length<7)return'';
+  const m=iso.match(/^(\d{4})-(\d{2})/);
+  if(!m)return'';
+  return `${m[2]}/${m[1]}`;
+}
+function brParaIso(txt){
+  if(!txt)return'';
+  txt=String(txt).trim();
+  // já é ISO: 2026-09, 2026/09, 2026.09
+  let m=txt.match(/^(\d{4})\s*[-/.\s]\s*(\d{1,2})$/);
+  if(m){
+    const a=+m[1],mes=+m[2];
+    if(mes>=1&&mes<=12&&a>=2000&&a<=2100)return `${a}-${String(mes).padStart(2,'0')}`;
+    return'';
+  }
+  // BR: MM/AAAA, MM-AAAA, MM AAAA, MMAAAA, MM AA
+  const dig=txt.replace(/\D/g,'');
+  if(dig.length===6){
+    const mes=+dig.slice(0,2),a=+dig.slice(2);
+    if(mes>=1&&mes<=12&&a>=2000&&a<=2100)return `${a}-${String(mes).padStart(2,'0')}`;
+    return'';
+  }
+  m=txt.match(/^(\d{1,2})\s*[-/.\s]\s*(\d{2,4})$/);
+  if(m){
+    const mes=+m[1];let a=+m[2];
+    if(a<100)a+=2000;
+    if(mes>=1&&mes<=12&&a>=2000&&a<=2100)return `${a}-${String(mes).padStart(2,'0')}`;
+  }
+  return'';
+}
+// Lê qualquer campo mês (aceita MM/AAAA digitado ou AAAA-MM antigo) e devolve AAAA-MM
+function mpGet(id){
+  const el=document.getElementById(id);
+  if(!el)return'';
+  const v=(el.value||'').trim();
+  if(/^\d{4}-\d{2}/.test(v))return v.slice(0,7); // compat: valor antigo ISO
+  return brParaIso(v);
+}
+// Define campo mês a partir de ISO AAAA-MM (exibe MM/AAAA)
+function mpSet(id,iso){
+  const el=document.getElementById(id);
+  if(!el)return;
+  el.value=iso?isoParaBR(iso):'';
+  el.classList.remove('mp-erro');
+}
+function mpDisparar(id){
+  // avisa o preview correspondente após digitar/escolher
+  if(id==='g-inicio'||id==='g-fim'){previewGasto();}
+  else if(id==='p-mes'){previewParcela();}
+  else if(id==='cfg-mes'){previewCfg();}
+  else if(id==='ae-mes'){desenharMesesEdicao();}
+}
+// máscara enquanto digita: só números, põe / sozinho, valida mês
+function onMpDigitar(id){
+  const el=document.getElementById(id);
+  if(!el)return;
+  let dig=el.value.replace(/\D/g,'').slice(0,6);
+  if(dig.length>=5){
+    let mes=dig.slice(0,2),ano=dig.slice(2);
+    el.value=`${mes}/${ano}`;
+  } else if(dig.length>=3){
+    el.value=`${dig.slice(0,2)}/${dig.slice(2)}`;
+  } else {
+    el.value=dig;
+  }
+  // valida ao completar
+  if(el.value.length>=7){
+    const iso=brParaIso(el.value);
+    el.classList.toggle('mp-erro',!iso);
+    if(iso){
+      // normaliza (ex: 9/2026 -> 09/2026)
+      el.value=isoParaBR(iso);
+    }
+  } else {
+    el.classList.remove('mp-erro');
+  }
+  mpDisparar(id);
+}
+function abrirMp(id,ev){
+  if(ev){ev.stopPropagation();ev.preventDefault();}
+  const el=document.getElementById(id);
+  if(!el)return;
+  const pop=document.getElementById('mp-pop');
+  // toggle se já aberto p/ o mesmo campo
+  if(pop.classList.contains('open')&&_mpAlvo===id){fecharMp();return;}
+  _mpAlvo=id;
+  const iso=mpGet(id);
+  let a,m;
+  if(iso){
+    const p=iso.split('-').map(Number);a=p[0];m=p[1];
+  } else {
+    const n=new Date();a=n.getFullYear();m=n.getMonth()+1;
+  }
+  _mpAno=a;
+  desenharMp(m);
+  // posiciona o popup dentro do .mp-wrap (funciona dentro de modal com scroll)
+  const wrap=el.closest('.mp-wrap');
+  if(wrap){
+    // garante que o wrap seja o offsetParent
+    pop.remove();
+    wrap.appendChild(pop);
+  }
+  pop.classList.add('open');
+  // foco volta p/ input após escolher? não — mantém popup aberto
+}
+function desenharMp(mesSel){
+  const pop=document.getElementById('mp-pop');
+  if(!pop||!_mpAlvo)return;
+  const isoAtual=mpGet(_mpAlvo);
+  let mesAtual=null;
+  if(isoAtual){mesAtual=+isoAtual.split('-')[1];}
+  // se trocou de ano, mantém seleção só se mesmo ano
+  const anoIso=isoAtual?+isoAtual.split('-')[0]:null;
+  pop.innerHTML=`
+    <div class="mp-head">
+      <button class="mp-nav" onclick="mpTrocarAno(-1)" title="Ano anterior">‹</button>
+      <span class="mp-ano">${_mpAno}</span>
+      <button class="mp-nav" onclick="mpTrocarAno(1)" title="Próximo ano">›</button>
+    </div>
+    <div class="mp-grid">${MP_MESES.map((n,i)=>{
+      const mm=i+1;
+      const sel=(anoIso===_mpAno&&mesAtual===mm)?' sel':'';
+      return`<button class="mp-mes${sel}" onclick="mpEscolher(${mm})">${n}<small>${String(mm).padStart(2,'0')}/${_mpAno}</small></button>`;
+    }).join('')}</div>
+    <div class="mp-foot">
+      <button class="mp-quick" onclick="mpHoje()">📅 Mês atual</button>
+      ${_mpAlvo==='g-fim'?`<button class="mp-quick" onclick="mpMaisMeses(12)">+12 meses</button><button class="mp-quick" onclick="mpLimpar()">∞ Sem fim</button>`:`<button class="mp-quick warn" onclick="mpLimpar()">✕ Limpar</button>`}
+    </div>`;
+}
+function mpTrocarAno(d){_mpAno+=d;desenharMp();}
+function mpEscolher(mes){
+  if(!_mpAlvo)return;
+  const alvo=_mpAlvo;
+  mpSet(alvo,`${_mpAno}-${String(mes).padStart(2,'0')}`);
+  fecharMp();
+  mpDisparar(alvo);
+  // foca próximo campo no modal de fixo p/ agilizar
+  if(alvo==='g-inicio'){
+    const f=document.getElementById('g-fim');
+    if(f&&!mpGet('g-fim'))setTimeout(()=>f.focus(),50);
+  }
+}
+function mpHoje(){
+  const n=new Date();
+  _mpAno=n.getFullYear();
+  mpEscolher(n.getMonth()+1);
+}
+function mpMaisMeses(qtd){
+  // usado no Mês fim: soma qtd meses a partir do início (ou de hoje)
+  const base=mpGet('g-inicio')||mpGet(_mpAlvo)||`${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,'0')}`;
+  const[y,m]=base.split('-').map(Number);
+  const d=new Date(y,m-1+qtd-1,1);
+  _mpAno=d.getFullYear();
+  mpEscolher(d.getMonth()+1);
+}
+function mpLimpar(){
+  if(!_mpAlvo)return;
+  const alvo=_mpAlvo;
+  mpSet(alvo,'');
+  fecharMp();
+  mpDisparar(alvo);
+}
+function fecharMp(){
+  const pop=document.getElementById('mp-pop');
+  if(pop)pop.classList.remove('open');
+  _mpAlvo=null;
+}
+document.addEventListener('click',e=>{
+  const pop=document.getElementById('mp-pop');
+  if(pop&&pop.classList.contains('open')&&!pop.contains(e.target)&&!e.target.classList?.contains('mp-btn')){
+    // se clicou fora do wrap atual, fecha (mas não se clicou no input — input abre)
+    const wrap=e.target.closest?.('.mp-wrap');
+    const wrapPop=pop.closest?.('.mp-wrap');
+    if(wrap!==wrapPop)fecharMp();
+  }
+});
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape')fecharMp();
+});
 async function api(method,path,body=null){
   const opts={method,headers:{'Content-Type':'application/json'}};
   if(token)opts.headers['Authorization']='Bearer '+token;
@@ -1618,9 +1826,9 @@ function renderSobraBanner2(){
 }
 
 // ── CONFIG ──
-function previewCfg(){const v=document.getElementById('cfg-mes').value;if(!v){document.getElementById('cfg-preview').textContent='';return;}const[y,m]=v.split('-').map(Number),n=new Date();let wm=n.getMonth()+1+OFFSET_MES_TRABALHO,wy=n.getFullYear();while(wm>12){wm-=12;wy++;}const p=(wy-y)*12+(wm-m);document.getElementById('cfg-preview').textContent=p>0?`⚠ ${p} mês(es) → Histórico.`:p===0?'✓ Mês de trabalho atual.':'✓ Mês futuro.';}
+function previewCfg(){const v=mpGet('cfg-mes');if(!v){document.getElementById('cfg-preview').textContent='';return;}const[y,m]=v.split('-').map(Number),n=new Date();let wm=n.getMonth()+1+OFFSET_MES_TRABALHO,wy=n.getFullYear();while(wm>12){wm-=12;wy++;}const p=(wy-y)*12+(wm-m);document.getElementById('cfg-preview').textContent=p>0?`⚠ ${p} mês(es) → Histórico.`:p===0?'✓ Mês de trabalho atual.':'✓ Mês futuro.';}
 async function salvarCfg(){
-  const v=document.getElementById('cfg-mes').value;
+  const v=mpGet('cfg-mes');
   if(!v){toast('Selecione um mês','err');return;}
   try{
     // O servidor desloca gasto_valores/parcelas/lançamentos preservando a data
@@ -1650,15 +1858,17 @@ function openModalGasto(id=null){
   popularSelect('g-cat','gasto');
   if(g)document.getElementById('g-cat').value=g.cat;
   document.getElementById('g-valor').value='';
-  if(g){const idxs=g.valores.map((v,i)=>v>0?i:-1).filter(i=>i>=0);if(idxs.length){document.getElementById('g-inicio').value=idxParaStr(Math.min(...idxs));document.getElementById('g-fim').value=idxParaStr(Math.max(...idxs));}const vals=g.valores.filter(v=>v>0);if(vals.length)document.getElementById('g-valor').value=vals[0];}
-  else{document.getElementById('g-inicio').value=idxParaStr(Math.max(0,idxTrabalho()));document.getElementById('g-fim').value='';}
+  fecharMp();
+  if(g){const idxs=g.valores.map((v,i)=>v>0?i:-1).filter(i=>i>=0);if(idxs.length){const i0=Math.min(...idxs),i1=Math.max(...idxs);mpSet('g-inicio',idxParaStr(i0));mpSet('g-fim',i1>=MESES-1?'':idxParaStr(i1));}else{mpSet('g-inicio','');mpSet('g-fim','');}const vals=g.valores.filter(v=>v>0);if(vals.length)document.getElementById('g-valor').value=vals[0];}
+  else{mpSet('g-inicio',idxParaStr(Math.max(0,idxTrabalho())));mpSet('g-fim','');}
   document.getElementById('g-preview').innerHTML='Preencha os campos...';
   openOv('ov-gasto');setTimeout(()=>document.getElementById('g-nome').focus(),80);
 }
-function previewGasto(){const v=parseFloat(document.getElementById('g-valor').value)||0,ini=document.getElementById('g-inicio').value,fim=document.getElementById('g-fim').value,el=document.getElementById('g-preview');if(!v||!ini||!fim){el.innerHTML='Preencha todos os campos...';return;}const idxIni=strParaIdx(ini),idxFim=strParaIdx(fim);if(idxFim<idxIni){el.innerHTML='<span style="color:var(--red)">Mês fim deve ser após o início!</span>';return;}el.innerHTML=`<span>${idxFim-idxIni+1} meses</span> × <span>${fmt(v)}</span> = <span>${fmt(v*(idxFim-idxIni+1))}</span><br>${mesLabel(idxIni,false)} → ${mesLabel(Math.min(idxFim,47),false)}`;}
+function previewGasto(){const v=parseFloat(document.getElementById('g-valor').value)||0,ini=mpGet('g-inicio');let fim=mpGet('g-fim');const el=document.getElementById('g-preview');if(!v||!ini){el.innerHTML='Preencha nome, valor e início...<br><span style="font-size:11px">💡 Mês fim vazio = vai até o fim (∞)</span>';return;}const idxIni=strParaIdx(ini);let idxFim=fim?strParaIdx(fim):MESES-1;if(idxFim<idxIni){el.innerHTML='<span style="color:var(--red)">Mês fim deve ser após o início!</span>';return;}const infinito=!fim;const nMeses=idxFim-idxIni+1;el.innerHTML=`<span>${infinito?'∞':nMeses+' meses'}</span> × <span>${fmt(v)}</span> = <span>${infinito?'mensal fixo':fmt(v*nMeses)}</span><br>${mesLabel(idxIni,false)} → ${infinito?'∞ sem fim':mesLabel(Math.min(idxFim,47),false)}`;}
 function openModalParcela(){
   ['p-nome','p-total','p-qtd'].forEach(id=>document.getElementById(id).value='');
-  document.getElementById('p-mes').value=idxParaStr(Math.max(0,idxTrabalho()));
+  fecharMp();
+  mpSet('p-mes',idxParaStr(Math.max(0,idxTrabalho())));
   popularSelect('p-cat','gasto');
   document.getElementById('parc-preview').innerHTML='Preencha os campos...';
   // popular select de vínculo
@@ -1669,7 +1879,7 @@ function openModalParcela(){
   }
   openOv('ov-parcela');setTimeout(()=>document.getElementById('p-nome').focus(),80);
 }
-function previewParcela(){const total=parseFloat(document.getElementById('p-total').value)||0,qtd=parseInt(document.getElementById('p-qtd').value)||0,mes=document.getElementById('p-mes').value,el=document.getElementById('parc-preview');if(!total||!qtd||!mes){el.innerHTML='Preencha os campos...';return;}const vp=total/qtd,idx=strParaIdx(mes);if(idx>=MESES){el.innerHTML='<span style="color:var(--red)">Além de 48 meses!</span>';return;}const fim=Math.min(idx+qtd-1,MESES-1),fora=qtd-(fim-idx+1);el.innerHTML=`<span>${qtd}x</span> de <span>${fmt(vp)}</span> = <span>${fmt(total)}</span><br>${mesLabel(idx,false)} → ${mesLabel(fim,false)}`+(fora>0?`<br><span style="color:var(--amber)">⚠ ${fora} além</span>`:'');}
+function previewParcela(){const total=parseFloat(document.getElementById('p-total').value)||0,qtd=parseInt(document.getElementById('p-qtd').value)||0,mes=mpGet('p-mes'),el=document.getElementById('parc-preview');if(!total||!qtd||!mes){el.innerHTML='Preencha os campos...';return;}const vp=total/qtd,idx=strParaIdx(mes);if(idx>=MESES){el.innerHTML='<span style="color:var(--red)">Além de 48 meses!</span>';return;}const fim=Math.min(idx+qtd-1,MESES-1),fora=qtd-(fim-idx+1);el.innerHTML=`<span>${qtd}x</span> de <span>${fmt(vp)}</span> = <span>${fmt(total)}</span><br>${mesLabel(idx,false)} → ${mesLabel(fim,false)}`+(fora>0?`<br><span style="color:var(--amber)">⚠ ${fora} além</span>`:'');}
 function popularSelectMes(elId, idxSelecionado=null){
   const el=document.getElementById(elId);if(!el)return;
   const ih=idxTrabalho();
@@ -1881,17 +2091,18 @@ function openModalCategoria(id=null){
 }
 
 function openOv(id){
-  if(id==='ov-cfg'){document.getElementById('cfg-mes').value=cfg.mes_inicio||'';previewCfg();document.getElementById('cfg-serr').classList.remove('show');atualizarBtnTema();}
+  if(id==='ov-cfg'){mpSet('cfg-mes',cfg.mes_inicio||'');previewCfg();document.getElementById('cfg-serr').classList.remove('show');atualizarBtnTema();}
+  fecharMp();
   document.getElementById(id).classList.add('open');
 }
-function closeOv(id){document.getElementById(id).classList.remove('open');}
+function closeOv(id){document.getElementById(id).classList.remove('open');fecharMp();}
 function closeOvOutside(e,id){if(e.target===document.getElementById(id))closeOv(id);}
 
 // ── CRUD ──
 async function addGasto(){
-  const nome=document.getElementById('g-nome').value.trim(),cat=document.getElementById('g-cat').value,valor=parseFloat(document.getElementById('g-valor').value)||0,ini=document.getElementById('g-inicio').value,fim=document.getElementById('g-fim').value;
-  if(!nome||!valor||!ini||!fim){toast('Preencha todos os campos','err');return;}
-  const idxIni=strParaIdx(ini),idxFim=strParaIdx(fim);if(idxFim<idxIni){toast('Mês fim deve ser após o início','err');return;}
+  const nome=document.getElementById('g-nome').value.trim(),cat=document.getElementById('g-cat').value,valor=parseFloat(document.getElementById('g-valor').value)||0,ini=mpGet('g-inicio'),fim=mpGet('g-fim')||idxParaStr(MESES-1);
+  if(!nome||!valor||!ini){toast('Preencha nome, valor e início','err');return;}
+  const idxIni=strParaIdx(ini),idxFim=fim?strParaIdx(fim):MESES-1;if(idxFim<idxIni){toast('Mês fim deve ser após o início','err');return;}
   try{
     if(editGastoId){await api('PUT',`/gastos/${editGastoId}`,{nome,cat});const g=gastos.find(x=>x.id===editGastoId);if(g){for(let i=0;i<MESES;i++){const nv=(i>=idxIni&&i<=idxFim)?valor:0;if(nv!==g.valores[i]){await api('PUT',`/gastos/${editGastoId}/valor`,{idx:i,valor:nv});g.valores[i]=nv;}}g.nome=nome;g.cat=cat;}toast('Atualizado!');}
     else{const vr=round2(valor);const valores=Array(MESES).fill(0);for(let i=idxIni;i<=Math.min(idxFim,47);i++)valores[i]=vr;const r=await api('POST','/gastos',{nome,cat,mes_inicio_idx:idxIni,mes_fim_idx:Math.min(idxFim,47),valor:vr});gastos.push({id:r.id,nome,cat,valores});toast('Gasto adicionado!');}
@@ -1899,7 +2110,7 @@ async function addGasto(){
   }catch(e){toast('Erro: '+e.message,false);}
 }
 async function addParcela(){
-  const nome=document.getElementById('p-nome').value.trim(),total=parseFloat(document.getElementById('p-total').value)||0,qtd=parseInt(document.getElementById('p-qtd').value)||0,mes=document.getElementById('p-mes').value,cat=document.getElementById('p-cat').value;
+  const nome=document.getElementById('p-nome').value.trim(),total=parseFloat(document.getElementById('p-total').value)||0,qtd=parseInt(document.getElementById('p-qtd').value)||0,mes=mpGet('p-mes'),cat=document.getElementById('p-cat').value;
   if(!nome||!total||!qtd||!mes){toast('Preencha todos os campos','err');return;}
   const mes_idx=strParaIdx(mes),valor_parcela=round2(total/qtd),total_r=round2(total);
   const vinculoId=parseInt(document.getElementById('p-vincular')?.value)||0;
@@ -2244,14 +2455,14 @@ function openModalAnotacaoItem(nid){
   document.getElementById('ai-titulo').textContent=`＋ Pessoa em: ${n?.titulo||''}`;
   ['ai-nome','ai-valor','ai-qtd'].forEach(id=>document.getElementById(id).value='');
   const now=new Date();
-  document.getElementById('ai-mes').value=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+  mpSet('ai-mes',`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`);
   openOv('ov-anotacao-item');setTimeout(()=>document.getElementById('ai-nome').focus(),80);
 }
 async function addAnotacaoItem(){
   const nome=document.getElementById('ai-nome').value.trim();
   const valor=parseFloat(document.getElementById('ai-valor').value)||0;
   const qtd=parseInt(document.getElementById('ai-qtd').value)||0;
-  const mes=document.getElementById('ai-mes').value;
+  const mes=mpGet('ai-mes');
   if(!nome||!valor||!qtd||!mes){toast('Preencha tudo','err');return;}
   try{await api('POST',`/anotacoes/${anotacaoAlvo}/itens`,{nome,valor_total:valor,qtd,mes_ref:mes});closeOv('ov-anotacao-item');renderAnotacoes();toast('Adicionado!');}catch(e){toast('Erro: '+e.message,false);}
 }
@@ -2275,7 +2486,7 @@ function openEditarItem(iid){
   document.getElementById('ae-nome').value=it.nome;
   document.getElementById('ae-valor').value=it.valor_total;
   document.getElementById('ae-qtd').value=it.qtd;
-  document.getElementById('ae-mes').value=it.mes_ref;
+  mpSet('ae-mes',it.mes_ref);
   desenharMesesEdicao();
   openOv('ov-anotacao-editar');setTimeout(()=>document.getElementById('ae-nome').focus(),80);
 }
@@ -2284,7 +2495,7 @@ function desenharMesesEdicao(){
   const box=document.getElementById('ae-meses');
   if(!it){box.innerHTML='';return;}
   const qtd=parseInt(document.getElementById('ae-qtd').value)||it.qtd||1;
-  const mesRef=document.getElementById('ae-mes').value||it.mes_ref;
+  const mesRef=mpGet('ae-mes')||it.mes_ref;
   const pagas=new Set(it.pagas||[]);
   let html='';
   for(let k=1;k<=Math.min(qtd,120);k++){
@@ -2329,7 +2540,7 @@ async function salvarEdicaoItem(){
   const nome=document.getElementById('ae-nome').value.trim();
   const valor=parseFloat(document.getElementById('ae-valor').value)||0;
   const qtd=parseInt(document.getElementById('ae-qtd').value)||0;
-  const mes=document.getElementById('ae-mes').value;
+  const mes=mpGet('ae-mes');
   if(!nome||!valor||!qtd||!mes){toast('Preencha tudo','err');return;}
   try{
     await api('PUT',`/anotacoes/itens/${itemEditId}`,{nome,valor_total:valor,qtd,mes_ref:mes});
