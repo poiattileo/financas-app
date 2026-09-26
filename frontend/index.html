@@ -1953,12 +1953,6 @@ async function mudarMes(delta){
   const d=new Date(y,m-1+delta,1);
   const novo=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
   if(novo===cfg.mes_inicio)return;
-  if(delta>0){
-    // não anda além do mês de trabalho (hoje+1): fora da janela não há o que fechar
-    const n=new Date(),wr=new Date(n.getFullYear(),n.getMonth()+1,1);
-    const wrRef=`${wr.getFullYear()}-${String(wr.getMonth()+1).padStart(2,'0')}`;
-    if(novo>wrRef){toast(`Só dá pra avançar até ${mesRefParaLabel(wrRef)}`,'err');return;}
-  }
   try{
     let refFechado=null;
     if(delta>0){
