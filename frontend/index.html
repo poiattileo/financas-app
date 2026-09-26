@@ -2050,7 +2050,7 @@ function openModalGasto(id=null){
   document.getElementById('g-preview').innerHTML='Preencha os campos...';
   openOv('ov-gasto');setTimeout(()=>document.getElementById('g-nome').focus(),80);
 }
-function previewGasto(){const v=parseFloat(document.getElementById('g-valor').value)||0,ini=mpGet('g-inicio');let fim=mpGet('g-fim');const el=document.getElementById('g-preview');if(!v||!ini){el.innerHTML='Preencha nome, valor e início...<br><span style="font-size:11px">💡 Mês fim vazio = vai até o fim (∞)</span>';return;}const idxIni=strParaIdx(ini);let idxFim=fim?strParaIdx(fim):MESES-1;if(idxFim<idxIni){el.innerHTML='<span style="color:var(--red)">Mês fim deve ser após o início!</span>';return;}const infinito=!fim;const nMeses=idxFim-idxIni+1;el.innerHTML=`<span>${infinito?'∞':nMeses+' meses'}</span> × <span>${fmt(v)}</span> = <span>${infinito?'mensal fixo':fmt(v*nMeses)}</span><br>${mesLabel(idxIni,false)} → ${infinito?'∞ sem fim':mesLabel(Math.min(idxFim,47),false)}`;}
+function previewGasto(){const v=parseFloat(document.getElementById('g-valor').value)||0,ini=mpGet('g-inicio');let fim=mpGet('g-fim');const el=document.getElementById('g-preview');if(!ini){el.innerHTML='Informe ao menos o início...<br><span style="font-size:11px">💡 Valor pode ser 0 (preenche depois mês a mês). Mês fim vazio = vai até o fim (∞)</span>';return;}const idxIni=strParaIdx(ini);let idxFim=fim?strParaIdx(fim):MESES-1;if(idxFim<idxIni){el.innerHTML='<span style="color:var(--red)">Mês fim deve ser após o início!</span>';return;}const infinito=!fim;const nMeses=idxFim-idxIni+1;el.innerHTML=`<span>${infinito?'∞':nMeses+' meses'}</span> × <span>${fmt(v)}</span> = <span>${infinito?'mensal fixo':fmt(v*nMeses)}</span><br>${mesLabel(idxIni,false)} → ${infinito?'∞ sem fim':mesLabel(Math.min(idxFim,47),false)}`;}
 function openModalParcela(){
   ['p-nome','p-total','p-qtd'].forEach(id=>document.getElementById(id).value='');
   fecharMp();
@@ -2292,7 +2292,7 @@ function closeOvOutside(e,id){if(e.target===document.getElementById(id))closeOv(
 // ── CRUD ──
 async function addGasto(){
   const nome=document.getElementById('g-nome').value.trim(),cat=document.getElementById('g-cat').value,valor=parseFloat(document.getElementById('g-valor').value)||0,ini=mpGet('g-inicio'),fim=mpGet('g-fim')||idxParaStr(MESES-1);
-  if(!nome||!valor||!ini){toast('Preencha nome, valor e início','err');return;}
+  if(!nome||!ini){toast('Preencha nome e início','err');return;}
   const idxIni=strParaIdx(ini),idxFim=fim?strParaIdx(fim):MESES-1;if(idxFim<idxIni){toast('Mês fim deve ser após o início','err');return;}
   try{
     if(editGastoId){await api('PUT',`/gastos/${editGastoId}`,{nome,cat});const g=gastos.find(x=>x.id===editGastoId);if(g){for(let i=0;i<MESES;i++){const nv=(i>=idxIni&&i<=idxFim)?valor:0;if(nv!==g.valores[i]){await api('PUT',`/gastos/${editGastoId}/valor`,{idx:i,valor:nv});g.valores[i]=nv;}}g.nome=nome;g.cat=cat;}toast('Atualizado!');}
