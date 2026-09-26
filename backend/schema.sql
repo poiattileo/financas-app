@@ -59,6 +59,7 @@ CREATE TABLE IF NOT EXISTS lancamentos (
     motivo      VARCHAR(200) DEFAULT '',
     mes_idx     INT DEFAULT NULL,
     tipo_ajuste VARCHAR(20) DEFAULT NULL,
+    gasto_id    INT DEFAULT NULL,
     criado_em   DATETIME DEFAULT NOW(),
     FOREIGN KEY (user_id) REFERENCES usuarios(id) ON DELETE CASCADE
 );

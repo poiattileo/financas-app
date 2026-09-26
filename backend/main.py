@@ -9,6 +9,7 @@ import mysql.connector
 import bcrypt
 import jwt
 import os
+import re
 import uuid
 import shutil
 from datetime import datetime, timedelta
@@ -98,6 +99,7 @@ class LancamentoInput(BaseModel):
     motivo: Optional[str] = ""
     mes_idx: Optional[int] = None
     tipo_ajuste: Optional[str] = None  # "subtrair" | "somar" | None (ajuste de fixo: só auditoria, não entra no total)
+    gasto_id: Optional[int] = None  # vínculo do espelho com o gasto fixo (p/ reverter)
 
 class MetaInput(BaseModel):
     nome: str
@@ -348,9 +350,9 @@ def listar_lancamentos(user=Depends(verificar_token)):
 def criar_lancamento(data: LancamentoInput, user=Depends(verificar_token)):
     db = get_db(); cur = db.cursor()
     cur.execute(
-        "INSERT INTO lancamentos (user_id,descricao,valor,cat,local_nome,recorrencia,motivo,mes_idx,tipo_ajuste) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+        "INSERT INTO lancamentos (user_id,descricao,valor,cat,local_nome,recorrencia,motivo,mes_idx,tipo_ajuste,gasto_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
         (user["id"],data.descricao,data.valor,data.cat,data.local or "",
-         data.recorrencia or "nunca", data.motivo or "", data.mes_idx, data.tipo_ajuste)
+         data.recorrencia or "nunca", data.motivo or "", data.mes_idx, data.tipo_ajuste, data.gasto_id)
     )
     lid = cur.lastrowid; cur.close(); db.close(); return {"id": lid}
 
@@ -359,6 +361,75 @@ def deletar_lancamento(lid: int, user=Depends(verificar_token)):
     db = get_db(); cur = db.cursor()
     cur.execute("DELETE FROM lancamentos WHERE id=%s AND user_id=%s", (lid,user["id"]))
     cur.close(); db.close(); return {"ok": True}
+
+def _gasto_do_espelho(cur, user_id, lanc):
+    """Resolve o gasto fixo de um lançamento-espelho de ajuste.
+    Usa gasto_id (novos) ou o prefixo 'Desconto:/Acréscimo: Nome' (antigos)."""
+    gid = None
+    try:
+        gid = lanc.get("gasto_id")
+    except Exception:
+        gid = None
+    if gid:
+        cur.execute("SELECT id, nome FROM gastos WHERE id=%s AND user_id=%s", (gid, user_id))
+        row = cur.fetchone()
+        if row:
+            return row, False
+    desc = (lanc.get("descricao") or "")
+    m = re.match(r"^(Desconto|Acrescimo|Acréscimo)\s*:\s*(.+)$", desc, re.IGNORECASE)
+    if m:
+        nome = m.group(2).strip()
+        cur.execute("SELECT id, nome FROM gastos WHERE user_id=%s", (user_id,))
+        for g in cur.fetchall():
+            if (g["nome"] or "").strip().lower() == nome.lower():
+                return g, True
+    return None, False
+
+@app.post("/api/lancamentos/{lid}/reverter")
+def reverter_lancamento(lid: int, user=Depends(verificar_token)):
+    """Cancela um lançamento revertendo tudo:
+    - ajuste de fixo: desfaz o delta no gasto e apaga o espelho;
+    - avulso: apaga o lançamento (e anexos)."""
+    db = get_db(); cur = db.cursor(dictionary=True)
+    cur.execute("SELECT * FROM lancamentos WHERE id=%s AND user_id=%s", (lid, user["id"]))
+    l = cur.fetchone()
+    if not l:
+        cur.close(); db.close(); raise HTTPException(status_code=404, detail="Lançamento não encontrado")
+    valor = float(l["valor"] or 0)
+    tipo = l.get("tipo_ajuste")
+    mes_idx = l.get("mes_idx")
+    gasto_nome = None; gasto_id = None
+    valor_antes = None; valor_depois = None; aproximado = False
+    if tipo in ("subtrair", "somar") and mes_idx is not None:
+        g, aproximado = _gasto_do_espelho(cur, user["id"], l)
+        if g:
+            gasto_id = g["id"]; gasto_nome = g["nome"]
+            cur.execute("SELECT valor FROM gasto_valores WHERE gasto_id=%s AND idx=%s", (g["id"], mes_idx))
+            row = cur.fetchone()
+            atual = float(row["valor"]) if row else 0.0
+            reverso = valor if tipo == "subtrair" else -valor  # desfaz o delta original
+            novo = round(atual + reverso, 2)
+            valor_antes, valor_depois = atual, novo
+            if novo == 0:
+                cur.execute("DELETE FROM gasto_valores WHERE gasto_id=%s AND idx=%s", (g["id"], mes_idx))
+            else:
+                cur.execute("INSERT INTO gasto_valores (gasto_id,idx,valor) VALUES (%s,%s,%s) ON DUPLICATE KEY UPDATE valor=%s",
+                    (g["id"], mes_idx, novo, novo))
+    # apaga arquivos dos anexos antes (o cascade limpa as linhas)
+    cur.execute("SELECT nome_arquivo FROM lancamento_anexos WHERE lancamento_id=%s", (lid,))
+    for a in cur.fetchall():
+        try:
+            caminho = os.path.join(UPLOAD_DIR, a["nome_arquivo"])
+            if os.path.exists(caminho):
+                os.remove(caminho)
+        except Exception:
+            pass
+    cur.execute("DELETE FROM lancamentos WHERE id=%s", (lid,))
+    cur.close(); db.close()
+    return {"ok": True, "tipo": tipo, "valor": valor,
+            "gasto_id": gasto_id, "gasto_nome": gasto_nome, "mes_idx": mes_idx,
+            "valor_antes": valor_antes, "valor_depois": valor_depois,
+            "aproximado": aproximado}
 
 # ── METAS ──
 @app.get("/api/metas")

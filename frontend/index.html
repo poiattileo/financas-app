@@ -2258,11 +2258,11 @@ async function addLanc(d,v,c,l,r){
         descricao:desc,valor:valorAbs,cat:g?.cat||'outros',
         local:'',recorrencia:'nunca',
         motivo:motivo||(op==='subtrair'?'Subtração em gasto fixo':'Adição em gasto fixo'),
-        mes_idx:mesIdx,tipo_ajuste:op
+        mes_idx:mesIdx,tipo_ajuste:op,gasto_id:gid
       });
       lancamentos.unshift({id:resL.id,descricao:desc,valor:valorAbs,cat:g?.cat||'outros',
         local_nome:'',recorrencia:'nunca',motivo,mes_idx:mesIdx,
-        tipo_ajuste:op,criado_em:dataLanc.toISOString()});
+        tipo_ajuste:op,gasto_id:gid,criado_em:dataLanc.toISOString()});
       closeOv('ov-lanc');renderTabela();renderLancamentos();renderSobraBanner();renderSobraBanner2();
       ultimoLanc={modo:'fixo',gid,idx:mesIdx,anterior:valorAnterior,lancId:resL.id,desc:g?.nome||'Gasto fixo'};
       toastDesfazer(`${g?.nome||'Gasto'} → ${fmtS(res.novo_valor)}!`);
@@ -2301,7 +2301,43 @@ async function addLanc(d,v,c,l,r){
 async function confirmarRepetir(){if(!repetirLanc)return;await addLanc(repetirLanc.descricao,repetirLanc.valor,repetirLanc.cat,repetirLanc.local_nome,repSel);closeOv('ov-repetir');}
 async function delGasto(id){if(!confirm('Remover?'))return;try{await api('DELETE',`/gastos/${id}`);gastos=gastos.filter(g=>g.id!==id);renderTabela();renderSobraBanner();renderSobraBanner2();toast('Removido');}catch(e){toast('Erro',false);}}
 async function delParcela(id){if(!confirm('Remover?'))return;try{await api('DELETE',`/parcelas/${id}`);parcelas=parcelas.filter(p=>p.id!==id);renderTabela();renderSobraBanner();renderSobraBanner2();toast('Removido');}catch(e){toast('Erro',false);}}
-async function delLanc(id){if(!confirm('Remover?'))return;try{await api('DELETE',`/lancamentos/${id}`);lancamentos=lancamentos.filter(l=>l.id!==id);renderLancamentos();renderSobraBanner();renderSobraBanner2();renderTotais();toast('Removido');}catch(e){toast('Erro',false);}}
+// Resolve o gasto de um espelho de ajuste (gasto_id novo ou prefixo "Desconto:/Acréscimo: Nome" antigo)
+function acharGastoDoAjuste(l){
+  if(!l||!l.tipo_ajuste||l.mes_idx===null||l.mes_idx===undefined)return{g:null};
+  if(l.gasto_id){const g=gastos.find(x=>x.id===l.gasto_id);if(g)return{g,aproximado:false};}
+  const m=String(l.descricao||'').match(/^(Desconto|Acrescimo|Acréscimo)\s*:\s*(.+)$/i);
+  if(m){const nome=m[2].trim().toLowerCase();const g=gastos.find(x=>(x.nome||'').trim().toLowerCase()===nome);if(g)return{g,aproximado:true};}
+  return{g:null};
+}
+function textoReverter(l){
+  if(!l.tipo_ajuste)return `Reverter lançamento?\n"${l.descricao}" — ${fmt(l.valor)}\nApaga o lançamento${l.anexos&&l.anexos.length?` e ${l.anexos.length} anexo(s)`:''}.`;
+  const op=l.tipo_ajuste==='subtrair'?'desconto':'acréscimo';
+  const{g,aproximado}=acharGastoDoAjuste(l);
+  if(g){
+    const atual=g.valores[l.mes_idx]||0;
+    const reverso=l.tipo_ajuste==='subtrair'?l.valor:-l.valor;
+    const novo=round2(atual+reverso);
+    return `Reverter ${op} em "${g.nome}"?\n${mesLabel(l.mes_idx,false)}: ${fmtS(atual)} → ${fmtS(novo)}\nO registro espelho será apagado.${aproximado?'\n(Vínculo aproximado pelo nome.)':''}`;
+  }
+  return `Reverter ${op} "${l.descricao}"?\nRegistro antigo sem vínculo: apaga só o espelho, o fixo NÃO muda.`;
+}
+async function reverterLanc(id){
+  const l=lancamentos.find(x=>x.id===id)||todosLancamentos.find(x=>x.id===id);
+  if(!l){toast('Lançamento não encontrado','err');return;}
+  if(!confirm(textoReverter(l)))return;
+  try{
+    const r=await api('POST',`/lancamentos/${id}/reverter`);
+    lancamentos=lancamentos.filter(x=>x.id!==id);
+    todosLancamentos=todosLancamentos.filter(x=>x.id!==id);
+    if(r.gasto_id!=null&&r.mes_idx!=null&&r.valor_depois!==null&&r.valor_depois!==undefined){
+      const g=gastos.find(x=>x.id===r.gasto_id);
+      if(g)g.valores[r.mes_idx]=r.valor_depois;
+    }
+    renderTabela();renderLancamentos();renderSobraBanner();renderSobraBanner2();renderTotais();
+    if(document.getElementById('lr-cards'))aplicarFiltrosLR();
+    toast(r.gasto_nome?`${r.gasto_nome} → ${fmtS(r.valor_depois)}!`:'Lançamento revertido!');
+  }catch(e){toast('Erro: '+e.message,false);}
+}
 async function addMeta(){const nome=document.getElementById('mt-nome').value.trim(),alvo=parseFloat(document.getElementById('mt-alvo').value)||0;if(!nome||!alvo){toast('Preencha nome e valor','err');return;}try{const r=await api('POST','/metas',{nome,valor_alvo:alvo,cor:corSel});metas.push({id:r.id,nome,valor_alvo:alvo,valor_atual:0,cor:corSel});closeOv('ov-meta');renderMetas();toast('Meta criada!');}catch(e){toast('Erro: '+e.message,false);}}
 async function confirmarAporte(){const v=parseFloat(document.getElementById('ap-valor').value)||0;if(!v){toast('Informe o valor','err');return;}try{await api('PUT',`/metas/${aportarMetaId}/aportar`,{valor:v});const m=metas.find(x=>x.id===aportarMetaId);if(m)m.valor_atual+=v;closeOv('ov-aportar');renderMetas();toast('Aporte adicionado!');}catch(e){toast('Erro',false);}}
 async function delMeta(id){if(!confirm('Remover meta?'))return;try{await api('DELETE',`/metas/${id}`);metas=metas.filter(m=>m.id!==id);renderMetas();toast('Removido');}catch(e){toast('Erro',false);}}
@@ -2402,7 +2438,7 @@ function renderLancamentos(){
     const[y,m]=mes.split('-').map(Number),label=new Date(y,m-1,1).toLocaleString('pt-BR',{month:'long',year:'numeric'});
     return`<div class="lanc-month-group fade-in"><div class="lanc-month-title">${label}<span class="lanc-month-total">- ${fmt(total)}</span></div>${itens.map((l,_li)=>{
       const d=new Date(l.criado_em),hora=d.toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}),ci=catInfo(l.cat),recTag=l.recorrencia&&l.recorrencia!=='nunca'?`<span class="lanc-rec">↩ ${l.recorrencia}</span>`:'';
-      return`<div class="lanc-item" style="animation-delay:${_li*0.04}s;border-left:3px solid ${ci.cor}55"><div class="lanc-icon" style="background:${ci.cor}22;color:${ci.cor}">${ci.emoji}</div><div class="lanc-info"><div class="lanc-desc">${l.descricao}${recTag}</div><div class="lanc-meta">${hora}${l.local_nome?' · '+l.local_nome:''}</div></div><span class="lanc-val">- ${fmt(l.valor)}</span><div class="lanc-actions"><button class="lanc-btn" onclick='openModalRepetir(${JSON.stringify(l).replace(/'/g,"&#39;")})' title="Repetir">↩</button><button class="lanc-btn del" onclick="delLanc(${l.id})">✕</button></div></div>`;
+      return`<div class="lanc-item" style="animation-delay:${_li*0.04}s;border-left:3px solid ${ci.cor}55"><div class="lanc-icon" style="background:${ci.cor}22;color:${ci.cor}">${ci.emoji}</div><div class="lanc-info"><div class="lanc-desc">${l.descricao}${recTag}</div><div class="lanc-meta">${hora}${l.local_nome?' · '+l.local_nome:''}</div></div><span class="lanc-val">- ${fmt(l.valor)}</span><div class="lanc-actions"><button class="lanc-btn" onclick='openModalRepetir(${JSON.stringify(l).replace(/'/g,"&#39;")})' title="Repetir">↩</button><button class="lanc-btn del" onclick="reverterLanc(${l.id})" title="Reverter (cancela e desfaz do fixo)">↩✕</button></div></div>`;
     }).join('')}</div>`;
   }).join('');
 }
@@ -3181,7 +3217,10 @@ function renderCardsLR(lista){
       </div>
       ${tags.length?`<div style="margin-top:4px">${tags.map(t=>`<span class="lr-card-tag">${t}</span>`).join('')}</div>`:''}
       ${anexosHtml}
-      <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);display:flex;justify-content:flex-end">
+      <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:6px">
+        <button class="btn btn-ghost" onclick="reverterLanc(${l.id})" style="font-size:11px;padding:4px 10px" title="Cancela e desfaz do fixo">
+          ↩ Reverter
+        </button>
         <button class="btn btn-ghost" onclick="abrirAnexarComprovante(${l.id})" style="font-size:11px;padding:4px 10px">
           📎 Anexar comprovante
         </button>

@@ -150,3 +150,6 @@ CREATE TABLE IF NOT EXISTS anotacao_valores (
     PRIMARY KEY (item_id, k),
     FOREIGN KEY (item_id) REFERENCES anotacao_itens(id) ON DELETE CASCADE
 );
+
+-- Vínculo do lançamento-espelho com o gasto fixo (p/ reverter ajuste de fixo)
+ALTER TABLE lancamentos ADD COLUMN IF NOT EXISTS gasto_id INT DEFAULT NULL;

@@ -29,6 +29,17 @@ else
   chown -R www-data:www-data /opt/financas/frontend
 fi
 
+if [ -f /opt/financas/backend/bot_telegram.py ]; then
+  if ! cmp -s backend/bot_telegram.py /opt/financas/backend/bot_telegram.py; then
+    echo "→ bot mudou, copiando e reiniciando..."
+    cp backend/bot_telegram.py /opt/financas/backend/
+    chown www-data:www-data /opt/financas/backend/bot_telegram.py
+    systemctl restart financas-bot 2>/dev/null || echo "  (serviço financas-bot não instalado/ativo — inicie manualmente se usar o bot)"
+  else
+    echo "→ bot sem mudanças (sem restart)"
+  fi
+fi
+
 echo "→ aplicando migrations do banco..."
 mysql financas < atualizar_banco.sql
 
