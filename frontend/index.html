@@ -1948,6 +1948,7 @@ async function reabrirMesRef(mesRef){
   return true;
 }
 async function mudarMes(delta){
+  alert('DEBUG clique: delta='+delta+' | mes_inicio='+cfg.mes_inicio+' | build='+window.FIN_BUILD);
   if(!cfg.mes_inicio){toast('Mês inicial não definido','err');return;}
   const[y,m]=cfg.mes_inicio.split('-').map(Number);
   const d=new Date(y,m-1+delta,1);
@@ -1975,7 +1976,7 @@ async function mudarMes(delta){
     renderLancamentos();
     atualizarBadge();atualizarMesTrabLabel();
     toast(delta>0?`🔒 ${mesRefParaLabel(refFechado)} fechado!`:`↩ ${mesRefParaLabel(refAberto||novo)}`);
-  }catch(e){toast('Erro: '+e.message,false);}
+  }catch(e){toast('Erro: '+e.message,false);alert('DEBUG ERRO: '+e.message);}
 }
 async function trocarSenha(){const atual=document.getElementById('cfg-s1').value,nova=document.getElementById('cfg-s2').value,conf=document.getElementById('cfg-s3').value,errEl=document.getElementById('cfg-serr');errEl.classList.remove('show');if(!atual||!nova){errEl.textContent='Preencha todos os campos';errEl.classList.add('show');return;}if(nova!==conf){errEl.textContent='As senhas não coincidem';errEl.classList.add('show');return;}if(nova.length<6){errEl.textContent='Mínimo 6 caracteres';errEl.classList.add('show');return;}try{await api('PUT','/senha',{senha_atual:atual,senha_nova:nova});['cfg-s1','cfg-s2','cfg-s3'].forEach(id=>document.getElementById(id).value='');toast('Senha alterada!');}catch(e){errEl.textContent=e.message;errEl.classList.add('show');}}
 
