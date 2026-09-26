@@ -1922,11 +1922,30 @@ function renderSobraBanner2(){
 
 // ── CONFIG ──
 // ── NAVEGAÇÃO DE MÊS (botões ‹ › na página principal) ──
+// Avançar: congela o mês de trabalho atual no Histórico e anda +1.
+// Voltar: anda −1 e reabre o mês (ele volta pra planilha refletindo valores atuais).
 function atualizarMesTrabLabel(){
   const el=document.getElementById('mes-trab-label');
   if(!el)return;
   const it=idxTrabalho();
   el.textContent=it>=0&&it<MESES?mesLabel(it,false):'';
+}
+async function fecharMesSilencioso(idx,mesRef){
+  if(mesRef==null||mesRef===''||idx<0||idx>=MESES)return false;
+  if(historicoFechados.some(h=>h.mes_ref===mesRef))return true; // já fechado
+  const sal=cfg.salario||0,parc=calcParcelasIdx(),lancIdx=calcLancIdxTudo();
+  const fx=round2(gastos.reduce((s,g)=>s+(g.valores[idx]||0),0));
+  const pm=round2(parc[idx]||0),lm=round2(lancIdx[idx]||0);
+  const tot=round2(fx+pm),sob=round2(sal-tot);
+  const det=gastos.filter(g=>(g.valores[idx]||0)!==0).map(g=>({nome:g.nome,cat:g.cat,valor:round2(g.valores[idx])}));
+  await api('POST','/historico/fechar',{mes_idx:idx,mes_ref:mesRef,salario:sal,fixos:fx,parcelas:pm,lancamentos:lm,total:tot,sobra:sob,detalhes:JSON.stringify(det).slice(0,4000)});
+  return true;
+}
+async function reabrirMesRef(mesRef){
+  const h=historicoFechados.find(x=>x.mes_ref===mesRef);
+  if(!h)return false;
+  await api('DELETE',`/historico/${h.id}`);
+  return true;
 }
 async function mudarMes(delta){
   if(!cfg.mes_inicio){toast('Mês inicial não definido','err');return;}
@@ -1935,15 +1954,27 @@ async function mudarMes(delta){
   const novo=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
   if(novo===cfg.mes_inicio)return;
   try{
+    let refFechado=null;
+    if(delta>0){
+      // congela o mês atual no histórico antes de andar
+      refFechado=idxParaStr(idxTrabalho());
+      await fecharMesSilencioso(idxTrabalho(),refFechado);
+    }
     // O servidor desloca gasto_valores/parcelas/lançamentos preservando a data
     // de calendário, então basta salvar e recarregar tudo do banco.
     await api('PUT','/config/mes-inicio',{mes_inicio:novo});
     cfg.mes_inicio=novo;
+    let refAberto=null;
+    if(delta<0){
+      // o mês que voltou pra planilha sai do congelado (reflete valores atuais)
+      refAberto=idxParaStr(idxTrabalho());
+      await reabrirMesRef(refAberto);
+    }
     await carregarTudo();
     renderTabela();renderSobraBanner();renderSobraBanner2();
     renderLancamentos();
     atualizarBadge();atualizarMesTrabLabel();
-    toast(mesRefParaLabel(novo));
+    toast(delta>0?`🔒 ${mesRefParaLabel(refFechado)} fechado!`:`↩ ${mesRefParaLabel(refAberto||novo)}`);
   }catch(e){toast('Erro: '+e.message,false);}
 }
 async function trocarSenha(){const atual=document.getElementById('cfg-s1').value,nova=document.getElementById('cfg-s2').value,conf=document.getElementById('cfg-s3').value,errEl=document.getElementById('cfg-serr');errEl.classList.remove('show');if(!atual||!nova){errEl.textContent='Preencha todos os campos';errEl.classList.add('show');return;}if(nova!==conf){errEl.textContent='As senhas não coincidem';errEl.classList.add('show');return;}if(nova.length<6){errEl.textContent='Mínimo 6 caracteres';errEl.classList.add('show');return;}try{await api('PUT','/senha',{senha_atual:atual,senha_nova:nova});['cfg-s1','cfg-s2','cfg-s3'].forEach(id=>document.getElementById(id).value='');toast('Senha alterada!');}catch(e){errEl.textContent=e.message;errEl.classList.add('show');}}
