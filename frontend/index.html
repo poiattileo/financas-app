@@ -1382,8 +1382,18 @@ let historicoFechados=[];
 let repetirLanc=null,aportarMetaId=null,editUserId=null,editCatId=null,recSel='nunca',repSel='agora',corSel='green';
 
 // ── UTILS ──
+window.FIN_BUILD='2026-09-26-ajuste';console.log('[financas] build '+window.FIN_BUILD);
 function round2(v){ return Math.round((Number(v)||0)*100)/100; }
 const fmt=v=>'R$ '+Math.abs(round2(v)).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+// número digitado em pt-BR: aceita "30", "30.5", "30,5" e "1.234,56"
+function numBR(v){
+  if(typeof v==='number')return v;
+  let s=String(v??'').trim();
+  if(!s)return 0;
+  if(s.includes(','))s=s.replace(/\./g,'').replace(',','.');
+  const n=parseFloat(s);
+  return n;
+}
 function toast(msg,ok=true){
   const t=document.getElementById('toast');
   t.textContent=msg;t.style.borderColor=ok?'var(--green)':'var(--red)';t.style.color=ok?'var(--green)':'var(--red)';
@@ -2120,22 +2130,26 @@ function atualizarInfoFixo(){
 }
 
 function previewAjuste(){
-  const gid=parseInt(document.getElementById('ln-fixo-id').value)||0;
+  const gid=parseInt(document.getElementById('ln-fixo-id')?.value)||0;
   const g=gastos.find(x=>x.id===gid);
-  const delta=parseFloat(document.getElementById('ln-fixo-valor').value)||0;
   const prev=document.getElementById('ln-fixo-preview');
-  if(!prev)return;
-  if(!g||!delta){prev.style.display='none';return;}
+  const elAntes=document.getElementById('pv-antes'),elOp=document.getElementById('pv-op'),
+        elDelta=document.getElementById('pv-delta'),elDepois=document.getElementById('pv-depois');
+  if(!prev||!elAntes||!elOp||!elDelta||!elDepois)return;
+  const delta=numBR(document.getElementById('ln-fixo-valor')?.value);
+  if(!g||!delta||isNaN(delta)){prev.style.display='none';return;}
   // usa o mês selecionado
   const _mpEl=document.getElementById('ln-fixo-mes');const mesIdxSel=(_mpEl&&_mpEl.value!=='')?parseInt(_mpEl.value):idxTrabalho();
-  const vAtual=g.valores[mesIdxSel]||0;
+  const vAtual=Number(g.valores[mesIdxSel])||0;
+  if(isNaN(vAtual)){prev.style.display='none';return;}
   const op=window._lnOp||'subtrair';
-  const novo=op==='subtrair'?Math.max(0,vAtual-delta):vAtual+delta;
-  document.getElementById('pv-antes').textContent=fmt(vAtual);
-  document.getElementById('pv-op').textContent=op==='subtrair'?'−':'+';
-  document.getElementById('pv-delta').textContent=fmt(delta);
-  document.getElementById('pv-depois').textContent=fmt(novo);
-  document.getElementById('pv-depois').style.color=op==='subtrair'?'var(--green)':'var(--red)';
+  // − diminui do valor já lançado · + soma ao valor já lançado (sem negativar)
+  const novo=op==='subtrair'?Math.max(0,round2(vAtual-delta)):round2(vAtual+delta);
+  elAntes.textContent=fmt(vAtual);
+  elOp.textContent=op==='subtrair'?'−':'+';
+  elDelta.textContent=fmt(delta);
+  elDepois.textContent=fmt(novo);
+  elDepois.style.color=op==='subtrair'?'var(--green)':'var(--red)';
   prev.style.display='';
 }
 function openModalMeta(){corSel='green';document.querySelectorAll('.cor-chip').forEach((c,i)=>c.classList.toggle('active',i===0));['mt-nome','mt-alvo'].forEach(id=>document.getElementById(id).value='');openOv('ov-meta');setTimeout(()=>document.getElementById('mt-nome').focus(),80);}
