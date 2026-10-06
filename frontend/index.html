@@ -1289,6 +1289,12 @@ input[type=number]{-moz-appearance:textfield}
       <div class="preview-box" id="hv-itens" style="max-height:260px;overflow-y:auto">Carregando...</div>
     </div>
     <div id="hv-obs" style="font-size:11px;color:var(--muted);margin-top:6px"></div>
+    <div class="field" style="margin-top:10px"><label>📱 Relatório WhatsApp desse mês</label>
+      <div style="display:flex;gap:6px">
+        <select id="hv-gasto" style="flex:1;background:var(--input-bg);border:1px solid var(--border);border-radius:7px;padding:8px 10px;color:var(--text);font-size:14px;outline:none;font-family:'Inter',sans-serif"><option value="">— Escolha o gasto —</option></select>
+        <button class="btn btn-ghost" style="color:var(--green);border-color:rgba(37,211,102,.3);background:rgba(37,211,102,.08)" onclick="puxarRelatorioHistorico()">📱 Puxar</button>
+      </div>
+    </div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeOv('ov-hist-view')">Fechar</button>
     </div>
@@ -2976,7 +2982,95 @@ function visualizarMes(mesRef){
     }).join('')
     :'— sem itens —';
   document.getElementById('hv-obs').textContent=obs;
+  window._hvMesRef=mesRef;
+  const selHv=document.getElementById('hv-gasto');
+  if(selHv) selHv.innerHTML='<option value="">— Escolha o gasto —</option>'+itens.map(d=>`<option value="${d.nome.replace(/"/g,'&quot;')}">${d.nome} · ${fmt(d.valor)}</option>`).join('');
   openOv('ov-hist-view');
+}
+
+// Puxa o relatório WhatsApp de um gasto do mês visualizado no Histórico.
+// Reaproveita a montagem de texto do gerarRelatorio(), mas com o valor
+// congelado do snapshot (não depende do idx atual, que muda com mes_inicio).
+function puxarRelatorioHistorico(){
+  const mesRef=window._hvMesRef||'';
+  const nomeGasto=(document.getElementById('hv-gasto')||{}).value||'';
+  if(!mesRef){toast('Abra um mês primeiro','err');return;}
+  if(!nomeGasto){toast('Escolha o gasto','err');return;}
+  const f=(historicoFechados||[]).find(h=>h.mes_ref===mesRef);
+  const idx=strParaIdx(mesRef);
+  // valor base: snapshot se fechado, ao vivo se aberto
+  let valorBase=0,mesNome='';
+  if(f){
+    mesNome=mesRefParaLabel(mesRef);
+    try{
+      const det=JSON.parse(f.detalhes||'[]');
+      const item=(Array.isArray(det)?det:[]).find(d=>(d.nome||'')===nomeGasto);
+      valorBase=round2((item&&item.valor)||0);
+    }catch(e){valorBase=0;}
+  } else {
+    if(!(idx>=0&&idx<MESES)){toast('Mês fora do intervalo atual',false);return;}
+    mesNome=mesLabel(idx,false);
+    const g=gastos.find(x=>x.nome===nomeGasto);
+    valorBase=round2((g&&g.valores[idx])||0);
+  }
+  // lançamentos do mês por data de calendário (funciona mesmo p/ snapshot antigo)
+  const nomeNorm=nomeGasto.toLowerCase();
+  const lancs=(lancamentos||[]).filter(l=>{
+    const d=new Date(l.criado_em);
+    const ms=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    if(ms!==mesRef && l.mes_idx!==idx) return false;
+    return (l.descricao||'').toLowerCase().includes(nomeNorm);
+  });
+  let totalAjustes=0,sumSub=0,sumSom=0;
+  lancs.forEach(l=>{
+    const sub=l.tipo_ajuste==='subtrair'||(!l.tipo_ajuste&&/^desconto\s*:/i.test(l.descricao||''));
+    const som=l.tipo_ajuste==='somar'||(!l.tipo_ajuste&&/^acr[eé]scimo\s*:/i.test(l.descricao||''));
+    if(sub){totalAjustes-=l.valor;sumSub+=l.valor;}
+    else if(som){totalAjustes+=l.valor;sumSom+=l.valor;}
+  });
+  const valorOriginal=valorBase===0?round2(valorBase-totalAjustes):round2(valorBase+(valorBase<0?-1:1)*(sumSub-sumSom));
+  const valorFinal=valorBase;
+  const fS=v=>(v>0?'+':'')+`R$ ${Math.abs(v).toFixed(2).replace('.',',')}`+(v>0?' (a receber)':'');
+  const linhas=[`*${nomeGasto} — ${mesNome}*`];
+  if(lancs.length>0){
+    linhas.push(`Base: ${fS(valorOriginal)}`);
+    lancs.forEach(l=>{
+      const d=new Date(l.criado_em);
+      const dia=d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});
+      const isSub=l.tipo_ajuste==='subtrair'||(!l.tipo_ajuste&&/^desconto\s*:/i.test(l.descricao||''));
+      const isAdd=l.tipo_ajuste==='somar'||(!l.tipo_ajuste&&/^acr[eé]scimo\s*:/i.test(l.descricao||''));
+      const sinal=isSub?'➖':isAdd?'➕':'•';
+      let linha=`${sinal} ${dia} ${l.descricao} (R$ ${l.valor.toFixed(2).replace('.',',')})`;
+      if(l.motivo) linha+=` — ${l.motivo}`;
+      linhas.push(linha);
+    });
+    linhas.push(`*Final: ${fS(valorFinal)}*`);
+  } else {
+    linhas.push(`*Valor: ${fS(valorFinal)}*`);
+  }
+  relatorioTexto=linhas.join('\n');
+  // deixa o modal de relatório consistente (pré-seleciona se achar o gasto/idx)
+  try{
+    const selG=document.getElementById('rel-gasto');
+    if(selG&&!selG.options.length) selG.innerHTML='<option value="">— Selecione —</option>'+gastos.map(g=>`<option value="${g.id}">${g.nome}</option>`).join('');
+    const g=gastos.find(x=>x.nome===nomeGasto);
+    if(g) selG.value=String(g.id);
+    const selM=document.getElementById('rel-mes');
+    if(selM&&idx>=0&&idx<MESES){
+      if(!selM.options.length){
+        const ih=idxTrabalho(),meses=[];
+        for(let i=Math.max(0,ih-11);i<=ih;i++) meses.push({idx:i,label:mesLabel(i,false)});
+        selM.innerHTML='<option value="">— Selecione —</option>'+meses.map(m=>`<option value="${m.idx}">${m.label}</option>`).join('');
+      }
+      selM.value=String(idx);
+    }
+  }catch(e){}
+  document.getElementById('rel-texto').innerHTML=relatorioTexto
+    .replace(/\*(.*?)\*/g,'<b style="color:#25d366">$1</b>')
+    .replace(/➖/g,'<span style="color:#ff6b6b">➖</span>')
+    .replace(/➕/g,'<span style="color:#25d366">➕</span>');
+  document.getElementById('rel-preview').style.display='block';
+  openOv('ov-relatorio');
 }
 
 function calcResumo(){
