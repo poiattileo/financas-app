@@ -1278,6 +1278,23 @@ input[type=number]{-moz-appearance:textfield}
   </div>
 </div>
 
+<!-- MODAL VISUALIZAR MÊS (Histórico) -->
+<div class="overlay" id="ov-hist-view" onclick="closeOvOutside(event,'ov-hist-view')">
+  <div class="modal" style="max-width:520px">
+    <span class="modal-drag"></span>
+    <h3 id="hv-titulo">👁 Mês</h3>
+    <div id="hv-badge" style="margin-bottom:.75rem"></div>
+    <div class="metrics" id="hv-metrics" style="margin-bottom:.75rem"></div>
+    <div class="field"><label>Detalhamento por gasto</label>
+      <div class="preview-box" id="hv-itens" style="max-height:260px;overflow-y:auto">Carregando...</div>
+    </div>
+    <div id="hv-obs" style="font-size:11px;color:var(--muted);margin-top:6px"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeOv('ov-hist-view')">Fechar</button>
+    </div>
+  </div>
+</div>
+
 <!-- MODAL CONFIG (não-admin) -->
 <div class="overlay" id="ov-cfg" onclick="closeOvOutside(event,'ov-cfg')">
   <div class="modal" style="max-width:420px">
@@ -2864,8 +2881,8 @@ async function renderHistorico(){
   mesesH.sort((a,b)=>a.mesRef.localeCompare(b.mesRef));
   if(!mesesH.length){wrap.innerHTML='<div class="hist-empty">Nenhum mês no histórico ainda.<br>Pague as contas e clique em “Fechar mês” para congelá-lo aqui.</div>';return;}
   const mesTrab=it<MESES?mesLabel(it,false):'—';
-  const cards=mesesH.map((m,mi)=>`<div class="hist-card fade-in" style="animation-delay:${mi*0.05}s;border-top:3px solid ${m.sob>=0?'var(--green)':'var(--red)'}"><div class="hc-mes">${m.label} ${m.fechado?'<span style="font-size:9px;background:var(--green-bg);color:var(--green);border-radius:4px;padding:1px 5px;margin-left:4px">fechado 🔒</span>':'<span style="font-size:9px;background:var(--amber-bg);color:var(--amber);border-radius:4px;padding:1px 5px;margin-left:4px">aberto</span>'}</div><div class="hc-sobra ${m.sob>=0?'pos':'neg'}">${fmt(m.sob)}</div><div class="hc-detail">Total: ${fmt(m.tot)}</div><div style="margin-top:6px">${m.fechado?`<button class="btn btn-ghost" style="font-size:10px;padding:3px 8px" onclick="reabrirMes(${m.fid})">↩ Reabrir</button> <button class="btn btn-ghost" style="font-size:10px;padding:3px 8px" onclick="restaurarMes(${m.fid})">⤺ Restaurar</button>`:`<button class="btn btn-primary" style="font-size:10px;padding:3px 8px" onclick="fecharMes(${m.idx},'${m.mesRef}')">🔒 Fechar mês</button>`}</div></div>`).join('');
-  const linhas=mesesH.map(m=>`<tr><td>${m.label}${m.fechado?' 🔒':''}</td><td class="neu">${fmt(m.sal)}</td><td class="neg">${fmt(m.fixos)}</td><td class="pur">${m.parcM>0?fmt(m.parcM):'—'}</td><td class="o">${m.lancM>0?fmt(m.lancM):'—'}</td><td class="neg">${fmt(m.tot)}</td><td class="${m.sob>=0?'pos':'neg'}">${fmt(m.sob)}</td><td>${m.fechado?`<button class="btn btn-ghost" style="font-size:10px;padding:2px 7px" onclick="reabrirMes(${m.fid})">Reabrir</button> <button class="btn btn-ghost" style="font-size:10px;padding:2px 7px" onclick="restaurarMes(${m.fid})">Restaurar</button>`:`<button class="btn btn-primary" style="font-size:10px;padding:2px 7px" onclick="fecharMes(${m.idx},'${m.mesRef}')">Fechar</button>`}</td></tr>`).join('');
+  const cards=mesesH.map((m,mi)=>`<div class="hist-card fade-in" style="animation-delay:${mi*0.05}s;border-top:3px solid ${m.sob>=0?'var(--green)':'var(--red)'}"><div class="hc-mes">${m.label} ${m.fechado?'<span style="font-size:9px;background:var(--green-bg);color:var(--green);border-radius:4px;padding:1px 5px;margin-left:4px">fechado 🔒</span>':'<span style="font-size:9px;background:var(--amber-bg);color:var(--amber);border-radius:4px;padding:1px 5px;margin-left:4px">aberto</span>'}</div><div class="hc-sobra ${m.sob>=0?'pos':'neg'}">${fmt(m.sob)}</div><div class="hc-detail">Total: ${fmt(m.tot)}</div><div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap"><button class="btn btn-ghost" style="font-size:10px;padding:3px 8px" onclick="visualizarMes('${m.mesRef}')">👁 Visualizar</button>${m.fechado?`<button class="btn btn-ghost" style="font-size:10px;padding:3px 8px" onclick="reabrirMes(${m.fid})">↩ Reabrir</button> <button class="btn btn-ghost" style="font-size:10px;padding:3px 8px" onclick="restaurarMes(${m.fid})">⤺ Restaurar</button>`:`<button class="btn btn-primary" style="font-size:10px;padding:3px 8px" onclick="fecharMes(${m.idx},'${m.mesRef}')">🔒 Fechar mês</button>`}</div></div>`).join('');
+  const linhas=mesesH.map(m=>`<tr><td>${m.label}${m.fechado?' 🔒':''}</td><td class="neu">${fmt(m.sal)}</td><td class="neg">${fmt(m.fixos)}</td><td class="pur">${m.parcM>0?fmt(m.parcM):'—'}</td><td class="o">${m.lancM>0?fmt(m.lancM):'—'}</td><td class="neg">${fmt(m.tot)}</td><td class="${m.sob>=0?'pos':'neg'}">${fmt(m.sob)}</td><td style="white-space:nowrap"><button class="btn btn-ghost" style="font-size:10px;padding:2px 7px" onclick="visualizarMes('${m.mesRef}')">👁 Ver</button> ${m.fechado?`<button class="btn btn-ghost" style="font-size:10px;padding:2px 7px" onclick="reabrirMes(${m.fid})">Reabrir</button> <button class="btn btn-ghost" style="font-size:10px;padding:2px 7px" onclick="restaurarMes(${m.fid})">Restaurar</button>`:`<button class="btn btn-primary" style="font-size:10px;padding:2px 7px" onclick="fecharMes(${m.idx},'${m.mesRef}')">Fechar</button>`}</td></tr>`).join('');
   wrap.innerHTML=`<div class="section"><div class="sec-title">Mês de trabalho: ${mesTrab} <span class="sec-badge">${mesesH.length} no histórico</span></div><div style="font-size:12px;color:var(--muted);margin-bottom:.9rem">Feche um mês para congelar os valores — ele sai da tela principal e fica guardado aqui. Meses “abertos” ainda refletem edições atuais.</div><div class="hist-cards">${cards}</div></div>
     <div class="section"><div class="sec-title">Gastos × Sobra</div><canvas id="hist-chart"></canvas></div>
     <div class="section"><div class="sec-title">Detalhamento</div><div style="overflow-x:auto"><table class="hist-table"><thead><tr><th>Mês</th><th>Salário</th><th>Fixos</th><th>Parcelas</th><th>Lançamentos</th><th>Total</th><th>Sobra</th><th></th></tr></thead><tbody>${linhas}</tbody></table></div></div>`;
@@ -2911,6 +2928,55 @@ async function restaurarMes(fid){
     atualizarBadge();atualizarMesTrabLabel();renderHistorico();
     toast(`Restaurado! ${r.restaurados} valor(es).`+(r.ignorados&&r.ignorados.length?` (${r.ignorados.length} gasto(s) não existem mais)`:''));
   }catch(e){toast('Erro: '+e.message,false);}
+}
+function visualizarMes(mesRef){
+  try{ historicoFechados=historicoFechados||[]; }catch(e){}
+  const f=(historicoFechados||[]).find(h=>h.mes_ref===mesRef);
+  const idx=strParaIdx(mesRef);
+  const temIdx=Number.isFinite(idx);
+  let sal,fx,pm,lm,tot,sob,fechado=false,itens=[],obs='';
+  if(f){
+    fechado=true;
+    sal=round2(f.salario);fx=round2(f.fixos);pm=round2(f.parcelas);lm=round2(f.lancamentos);
+    tot=round2(f.total);sob=round2(f.sobra);
+    try{
+      const det=JSON.parse(f.detalhes||'[]');
+      if(Array.isArray(det)) itens=det.filter(d=>(d.valor||0)!==0);
+    }catch(e){ itens=[]; }
+    if(!itens.length) obs='Detalhamento por item não disponível neste snapshot — mostrando só os totais congelados.';
+  } else if(temIdx && idx>=0 && idx<MESES){
+    const parc=calcParcelasIdx(),lancIdx=calcLancIdxTudo();
+    sal=round2(cfg.salario||0);
+    fx=round2(gastos.reduce((s,g)=>s+(g.valores[idx]||0),0));
+    pm=round2(parc[idx]||0);lm=round2(lancIdx[idx]||0);
+    tot=round2(fx+pm);sob=round2(sal-tot);
+    itens=gastos.filter(g=>(g.valores[idx]||0)!==0)
+      .map(g=>({nome:g.nome,cat:g.cat,valor:round2(g.valores[idx])}))
+      .sort((a,b)=>b.valor-a.valor);
+    obs='Mês ainda aberto — valores ao vivo, podem mudar até fechar.';
+  } else {
+    toast('Mês não encontrado',false);return;
+  }
+  const label=f?mesRefParaLabel(mesRef):(temIdx?mesLabel(idx,false):mesRefParaLabel(mesRef));
+  document.getElementById('hv-titulo').textContent='👁 '+label;
+  document.getElementById('hv-badge').innerHTML=fechado
+    ?'<span style="font-size:11px;background:var(--green-bg);color:var(--green);border-radius:20px;padding:2px 10px;font-weight:600">fechado 🔒 — valores congelados</span>'
+    :'<span style="font-size:11px;background:var(--amber-bg);color:var(--amber);border-radius:20px;padding:2px 10px;font-weight:600">aberto — valores atuais</span>';
+  document.getElementById('hv-metrics').innerHTML=
+    `<div class="metric b"><div class="metric-label">Salário</div><div class="metric-value" style="font-size:15px">${fmt(sal)}</div></div>`+
+    `<div class="metric r"><div class="metric-label">Fixos</div><div class="metric-value" style="font-size:15px">${fmt(fx)}</div></div>`+
+    `<div class="metric p"><div class="metric-label">Parcelas</div><div class="metric-value" style="font-size:15px">${fmt(pm)}</div></div>`+
+    `<div class="metric o"><div class="metric-label">Lançam.</div><div class="metric-value" style="font-size:15px">${fmt(lm)}</div></div>`+
+    `<div class="metric r"><div class="metric-label">Total</div><div class="metric-value" style="font-size:15px">${fmt(tot)}</div></div>`+
+    `<div class="metric ${sob>=0?'g':'r'}"><div class="metric-label">Sobra</div><div class="metric-value" style="font-size:15px">${fmt(sob)}</div></div>`;
+  document.getElementById('hv-itens').innerHTML=itens.length
+    ?itens.map(d=>{
+      const ci=catInfo(d.cat);
+      return`<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)"><span>${ci.emoji||'💳'}</span><span style="flex:1;font-family:Inter,sans-serif;color:var(--text)">${d.nome} <small style="color:var(--hint)">· ${ci.label||d.cat||''}</small></span><span>${fmt(d.valor)}</span></div>`;
+    }).join('')
+    :'— sem itens —';
+  document.getElementById('hv-obs').textContent=obs;
+  openOv('ov-hist-view');
 }
 
 function calcResumo(){
