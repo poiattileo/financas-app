@@ -2576,8 +2576,8 @@ function renderTotais(){
     if(t)t.textContent=fmt(tot);
     if(s){s.textContent=fmt(sob);s.className=sob>=0?'':'neg';}
     if(l){
-      if(lm>0){
-        l.textContent='- '+fmt(lm);
+      if(lm!==0){
+        l.textContent='- '+fmt(Math.abs(lm));
         const lancs=getLancsMes(i);
         const temSub=lancs.some(x=>x.tipo_ajuste==='subtrair'||(!x.tipo_ajuste));
         const temAdd=lancs.some(x=>x.tipo_ajuste==='somar');
