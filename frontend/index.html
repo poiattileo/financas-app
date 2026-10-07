@@ -951,6 +951,13 @@ input[type=number]{-moz-appearance:textfield}
       <div class="field"><label>Motivo / Comentário (opcional)</label>
         <input id="ln-motivo" placeholder="Ex: Aniversário da Maria, desconto recebido...">
       </div>
+      <div class="field">
+        <label>Vincular a gasto fixo? (opcional)</label>
+        <select id="ln-vincular">
+          <option value="">— Não vincular —</option>
+        </select>
+        <div style="font-size:11px;color:var(--muted);margin-top:4px">Só associa este registro ao gasto fixo (aparece no filtro de Registros). Não altera o valor do fixo — para isso use "Ajustar gasto fixo".</div>
+      </div>
       <div class="field"><label>Recorrência</label>
         <div class="rec-chips">
           <button class="rec-chip active" data-rec="nunca" onclick="selRec(this)">Só agora</button>
@@ -2160,6 +2167,16 @@ function openModalLanc(modoInicial='avulso'){
       }).join('');
   }
 
+  // popular select de vinculação do modo avulso
+  const vSel=document.getElementById('ln-vincular');
+  if(vSel){
+    vSel.innerHTML='<option value="">— Não vincular —</option>'+
+      gastos.map(g=>{
+        const ci=catInfo(g.cat);
+        return `<option value="${g.id}">${ci.emoji} ${g.nome}</option>`;
+      }).join('');
+  }
+
   // esconder card info e preview
   const card=document.getElementById('ln-fixo-card');if(card)card.style.display='none';
   const prev=document.getElementById('ln-fixo-preview');if(prev)prev.style.display='none';
@@ -2419,14 +2436,15 @@ async function addLanc(d,v,c,l,r){
   const local=l||document.getElementById('ln-local').value.trim();
   const rec=r||recSel;
   const motivo=document.getElementById('ln-motivo')?.value.trim()||'';
+  const gidVinc=parseInt(document.getElementById('ln-vincular')?.value||'')||null;
   const _maEl=document.getElementById('ln-mes');const mesIdx=(_maEl&&_maEl.value!=='')?parseInt(_maEl.value):idxTrabalho();
   if(!desc||!valor){toast('Preencha descrição e valor','err');return;}
   try{
-    const res=await api('POST','/lancamentos',{descricao:desc,valor,cat,local,recorrencia:rec,motivo,mes_idx:mesIdx});
+    const res=await api('POST','/lancamentos',{descricao:desc,valor,cat,local,recorrencia:rec,motivo,mes_idx:mesIdx,gasto_id:gidVinc});
     // data sintética baseada no mês selecionado
     const[y,m]=cfg.mes_inicio.split('-').map(Number);
     const dataLanc=new Date(y,m-1+mesIdx,new Date().getDate());
-    const novoLanc={id:res.id,descricao:desc,valor,cat,local_nome:local,recorrencia:rec,motivo,mes_idx:mesIdx,criado_em:dataLanc.toISOString(),anexos:[]};
+    const novoLanc={id:res.id,descricao:desc,valor,cat,local_nome:local,recorrencia:rec,motivo,mes_idx:mesIdx,gasto_id:gidVinc,criado_em:dataLanc.toISOString(),anexos:[]};
     lancamentos.unshift(novoLanc);
     // upload de anexos pendentes
     if(anexosPendentes.length){
@@ -3446,8 +3464,12 @@ function aplicarFiltrosLR(){
   if(fTipo==='add') lista=lista.filter(l=>l.tipo_ajuste==='somar');
   if(fTipo==='avulso') lista=lista.filter(l=>!l.tipo_ajuste);
   if(fGasto){
-    const g=gastos.find(x=>x.id===parseInt(fGasto));
-    if(g) lista=lista.filter(l=>l.descricao.includes(g.nome)||l.cat===g.cat);
+    const gid=parseInt(fGasto);
+    const g=gastos.find(x=>x.id===gid);
+    if(g) lista=lista.filter(l=>{
+      if(l.gasto_id===gid) return true; // vínculo explícito (avulso vinculado / espelho de ajuste)
+      return l.descricao.includes(g.nome)||l.cat===g.cat; // fallback p/ lançamentos antigos
+    });
   }
 
   renderCardsLR(lista);
