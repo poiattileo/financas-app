@@ -936,9 +936,17 @@ input[type=number]{-moz-appearance:textfield}
       </div>
       <div class="field-row">
         <div class="field"><label>Valor (R$)</label>
-          <input id="ln-valor" type="number" placeholder="10,00" step="0.01" min="0.01" inputmode="decimal">
+          <input id="ln-valor" type="number" placeholder="10,00" step="0.01" min="0" inputmode="decimal">
         </div>
         <div class="field"><label>Categoria</label><select id="ln-cat"></select></div>
+      </div>
+      <div class="field"><label>O valor é</label>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px">
+          <button class="sin-chip active" data-sinal="-" onclick="selSinalLanc(this)"
+            style="padding:10px 8px;border-radius:9px;border:1px solid var(--green);background:var(--green-bg);color:var(--green);font-size:12px;font-weight:600;cursor:pointer;text-align:center;transition:.15s">− A pagar</button>
+          <button class="sin-chip" data-sinal="+" onclick="selSinalLanc(this)"
+            style="padding:10px 8px;border-radius:9px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:12px;font-weight:600;cursor:pointer;text-align:center;transition:.15s">+ A receber</button>
+        </div>
       </div>
       <div class="field-row">
         <div class="field"><label>Mês do lançamento</label>
@@ -952,11 +960,11 @@ input[type=number]{-moz-appearance:textfield}
         <input id="ln-motivo" placeholder="Ex: Aniversário da Maria, desconto recebido...">
       </div>
       <div class="field">
-        <label>Vincular a gasto fixo? (opcional)</label>
+        <label>Gasto fixo *</label>
         <select id="ln-vincular">
-          <option value="">— Não vincular —</option>
+          <option value="">— Escolha um gasto fixo —</option>
         </select>
-        <div style="font-size:11px;color:var(--muted);margin-top:4px">Se selecionar um gasto, o valor será somado ao valor já definido no mês (igual ao Parcelado vinculado).</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:4px">O valor será somado ao valor já definido no mês (igual ao Parcelado vinculado).</div>
       </div>
       <div class="field"><label>Recorrência</label>
         <div class="rec-chips">
@@ -2175,7 +2183,7 @@ function openModalLanc(modoInicial='avulso'){
   // popular select de vinculação do modo avulso
   const vSel=document.getElementById('ln-vincular');
   if(vSel){
-    vSel.innerHTML='<option value="">— Não vincular —</option>'+
+    vSel.innerHTML='<option value="">— Escolha um gasto fixo —</option>'+
       gastos.map(g=>{
         const ci=catInfo(g.cat);
         return `<option value="${g.id}">${ci.emoji} ${g.nome}</option>`;
@@ -2189,8 +2197,10 @@ function openModalLanc(modoInicial='avulso'){
   // modo e operação iniciais
   window._lnModo=modoInicial;
   window._lnOp='subtrair';
+  window._lnSinal='-';
   selModoLanc_btn(modoInicial);
   selOpFixo('subtrair');
+  selSinalLanc_btn('-');
   openOv('ov-lanc');
   setTimeout(()=>{
     if(modoInicial==='avulso') document.getElementById('ln-desc')?.focus();
@@ -2200,6 +2210,19 @@ function openModalLanc(modoInicial='avulso'){
 
 function selModoLanc(el){
   selModoLanc_btn(el.dataset.modo);
+}
+function selSinalLanc(el){
+  selSinalLanc_btn(el.dataset.sinal);
+}
+function selSinalLanc_btn(s){
+  window._lnSinal=s;
+  document.querySelectorAll('#ov-lanc .sin-chip').forEach(b=>{
+    const ativo=b.dataset.sinal===s;
+    b.style.background=ativo?'var(--green-bg)':'transparent';
+    b.style.borderColor=ativo?'var(--green)':'var(--border)';
+    b.style.color=ativo?'var(--green)':'var(--muted)';
+    b.classList.toggle('active',ativo);
+  });
 }
 function atualizarSelectGastos(){
   const _sgEl=document.getElementById('ln-fixo-mes');const mesIdx=(_sgEl&&_sgEl.value!=='')?parseInt(_sgEl.value):idxTrabalho();
@@ -2435,15 +2458,19 @@ async function addLanc(d,v,c,l,r){
     return;
   }
   // modo avulso
+  const viaRepetir=d!==undefined;
   const desc=d||document.getElementById('ln-desc').value.trim();
-  const valor=v||parseFloat(document.getElementById('ln-valor').value)||0;
+  let valor;
+  if(v!==undefined&&v!==null)valor=v; // repetir: já vem com o sinal certo
+  else{const raw=Math.abs(parseFloat(document.getElementById('ln-valor').value)||0);valor=(window._lnSinal==='+'?raw:-raw);}
   const cat=c||document.getElementById('ln-cat').value;
   const local=l||document.getElementById('ln-local').value.trim();
   const rec=r||recSel;
   const motivo=document.getElementById('ln-motivo')?.value.trim()||'';
-  const gidVinc=parseInt(document.getElementById('ln-vincular')?.value||'')||null;
+  const gidVinc=viaRepetir?(repetirLanc?.gasto_id||null):(parseInt(document.getElementById('ln-vincular')?.value||'')||null);
   const _maEl=document.getElementById('ln-mes');const mesIdx=(_maEl&&_maEl.value!=='')?parseInt(_maEl.value):idxTrabalho();
   if(!desc||!valor){toast('Preencha descrição e valor','err');return;}
+  if(!gidVinc&&gastos.length&&!viaRepetir){toast('Selecione um gasto fixo','err');return;}
   try{
     // avulso vinculado: soma o valor no gasto fixo (igual ao Parcelado vinculado)
     let gVinc=null,novoValorFixo=null,anteriorFixo=null;
