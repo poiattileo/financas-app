@@ -40,6 +40,14 @@ if [ -f /opt/financas/backend/bot_telegram.py ]; then
   fi
 fi
 
+echo "→ backup do banco..."
+mkdir -p /opt/financas/backups
+BK="/opt/financas/backups/financas-$(date +%F_%H%M%S).sql"
+mysqldump financas > "$BK"
+echo "  backup em $BK"
+ls -t /opt/financas/backups/financas-*.sql 2>/dev/null | tail -n +15 | xargs -r rm -f
+echo "  (mantidos os 14 mais recentes)"
+
 echo "→ aplicando migrations do banco..."
 mysql financas < atualizar_banco.sql
 

@@ -532,6 +532,17 @@ def deletar_anexo(aid: int, user=Depends(verificar_token)):
     cur.execute("DELETE FROM lancamento_anexos WHERE id=%s", (aid,))
     cur.close(); db.close(); return {"ok": True}
 
+@app.get("/api/anexos/{aid}/download")
+def baixar_anexo(aid: int, user=Depends(verificar_token)):
+    """Download de anexo com checagem de dono (o nginx não repassa /uploads/*)."""
+    db = get_db(); cur = db.cursor(dictionary=True)
+    cur.execute("SELECT a.nome_original, a.nome_arquivo, a.tipo FROM lancamento_anexos a JOIN lancamentos l ON a.lancamento_id=l.id WHERE a.id=%s AND l.user_id=%s", (aid, user["id"]))
+    row = cur.fetchone(); cur.close(); db.close()
+    if not row: raise HTTPException(status_code=403)
+    caminho = os.path.join(UPLOAD_DIR, row["nome_arquivo"])
+    if not os.path.exists(caminho): raise HTTPException(status_code=404, detail="Arquivo não encontrado")
+    return FileResponse(caminho, media_type=row["tipo"] or "application/octet-stream", filename=row["nome_original"])
+
 @app.get("/api/lancamentos-todos")
 def listar_todos_lancamentos(user=Depends(verificar_token)):
     db = get_db(); cur = db.cursor(dictionary=True)

@@ -3316,8 +3316,8 @@ function mostrarTooltipCelula(e, idx, nomeGasto, cor){
         ${l.anexos.map(a=>{
           const isImg=a.tipo&&a.tipo.startsWith('image/');
           return`<div class="ct-anexo">
-            <span class="ct-anexo-ico">${isImg?`<img src="${a.url}" style="width:28px;height:20px;object-fit:cover;border-radius:3px;cursor:pointer" onclick="abrirLightbox('${a.url}')">`:tipoAnexoEmoji(a.tipo,a.nome_original)}</span>
-            <a class="ct-anexo-nome" href="${a.url}" target="_blank">${a.nome_original}</a>
+            <span class="ct-anexo-ico">${isImg?`<img data-anexo-id="${a.id}" data-tipo="${a.tipo||''}" style="width:28px;height:20px;object-fit:cover;border-radius:3px;cursor:pointer" onclick="abrirLightboxAnexo(${a.id})">`:tipoAnexoEmoji(a.tipo,a.nome_original)}</span>
+            <a class="ct-anexo-nome" href="#" onclick="abrirAnexo(${a.id},'${escAsp(a.nome_original)}');return false;">${a.nome_original}</a>
             <span class="ct-anexo-tam">${fmtTamanho(a.tamanho||0)}</span>
           </div>`;
         }).join('')}
@@ -3334,6 +3334,7 @@ function mostrarTooltipCelula(e, idx, nomeGasto, cor){
       <span class="ct-val" style="color:${corVal};font-size:13px;font-weight:600">${sinal} ${fmt(l.valor)}</span>
     </div>`;
   }).join('');
+  hidratarThumbs(document.getElementById('ct-items'));
 
   const totalEl=document.getElementById('ct-total');
   const totalValEl=document.getElementById('ct-total-val');
@@ -3441,6 +3442,43 @@ function abrirLightbox(url){
   document.getElementById('lightbox-img').src=url;
   document.getElementById('lightbox').classList.add('open');
 }
+// ── ANEXOS VIA ENDPOINT AUTENTICADO ──
+// O nginx não repassa /uploads/* (cai no fallback do index.html), então
+// thumbnails e downloads de anexos já enviados passam por /api/anexos,
+// que confere o dono do lançamento. Blob fica em cache em memória.
+const _blobAnexos={};
+async function blobAnexo(aid){
+  aid=Number(aid);
+  if(_blobAnexos[aid])return _blobAnexos[aid];
+  const r=await fetch(`${API}/anexos/${aid}/download`,{headers:{'Authorization':'Bearer '+token}});
+  if(r.status===401){logout();throw new Error('Sessão expirada');}
+  if(!r.ok)throw new Error('Falha ao baixar anexo');
+  const u=URL.createObjectURL(await r.blob());
+  _blobAnexos[aid]=u;
+  return u;
+}
+async function abrirAnexo(aid,nome){
+  try{
+    const u=await blobAnexo(aid);
+    const a=document.createElement('a');a.href=u;a.download=nome||'anexo';document.body.appendChild(a);a.click();a.remove();
+  }catch(e){toast('Erro ao baixar anexo',false);}
+}
+async function abrirLightboxAnexo(aid){
+  try{
+    document.getElementById('lightbox-img').src=await blobAnexo(aid);
+    document.getElementById('lightbox').classList.add('open');
+  }catch(e){toast('Erro ao abrir anexo',false);}
+}
+function hidratarThumbs(root){
+  if(!root||!root.querySelectorAll)return;
+  root.querySelectorAll('img[data-anexo-id]').forEach(img=>{
+    const aid=img.getAttribute('data-anexo-id');
+    blobAnexo(aid).then(u=>{img.src=u;}).catch(()=>{
+      const s=document.createElement('span');s.textContent=tipoAnexoEmoji(img.dataset.tipo||'');img.replaceWith(s);
+    });
+  });
+}
+function escAsp(s){return String(s||'').replace(/'/g,"\\'");}
 function fecharLightbox(){
   document.getElementById('lightbox').classList.remove('open');
   document.getElementById('lightbox-img').src='';
@@ -3538,9 +3576,9 @@ function renderCardsLR(lista){
         const isImg=a.tipo&&a.tipo.startsWith('image/');
         const emoji=tipoAnexoEmoji(a.tipo,a.nome_original);
         return`<div class="lr-card-anexo-item">
-          ${isImg?`<img class="lr-card-anexo-img" src="${a.url}" onclick="abrirLightbox('${a.url}')" alt="${a.nome_original}">`:
+          ${isImg?`<img class="lr-card-anexo-img" data-anexo-id="${a.id}" data-tipo="${a.tipo||''}" onclick="abrirLightboxAnexo(${a.id})" alt="${a.nome_original}">`:
           `<span style="font-size:20px">${emoji}</span>`}
-          <a class="lr-card-anexo-link" href="${a.url}" target="_blank" title="${a.nome_original}">${a.nome_original}</a>
+          <a class="lr-card-anexo-link" href="#" onclick="abrirAnexo(${a.id},'${escAsp(a.nome_original)}');return false;" title="${a.nome_original}">${a.nome_original}</a>
           <span style="font-size:10px;color:var(--hint)">${fmtTamanho(a.tamanho)}</span>
         </div>`;
       }).join('');
@@ -3568,6 +3606,7 @@ function renderCardsLR(lista){
       </div>
     </div>`;
   }).join('');
+  hidratarThumbs(cards);
 }
 
 // ── ANEXAR COMPROVANTE (na aba Registros) ──
@@ -3593,9 +3632,9 @@ function renderAnexosExistentes(l){
     html+=l.anexos.map(a=>{
       const isImg=a.tipo&&a.tipo.startsWith('image/');
       return`<div class="anexo-item">
-        <span class="anexo-icone">${isImg?`<img src="${a.url}" style="width:32px;height:24px;object-fit:cover;border-radius:3px;cursor:pointer" onclick="abrirLightbox('${a.url}')">`:tipoAnexoEmoji(a.tipo,a.nome_original)}</span>
+        <span class="anexo-icone">${isImg?`<img data-anexo-id="${a.id}" data-tipo="${a.tipo||''}" style="width:32px;height:24px;object-fit:cover;border-radius:3px;cursor:pointer" onclick="abrirLightboxAnexo(${a.id})">`:tipoAnexoEmoji(a.tipo,a.nome_original)}</span>
         <div class="anexo-info">
-          <div class="anexo-nome"><a class="anexo-link" href="${a.url}" target="_blank">${a.nome_original}</a></div>
+          <div class="anexo-nome"><a class="anexo-link" href="#" onclick="abrirAnexo(${a.id},'${escAsp(a.nome_original)}');return false;">${a.nome_original}</a></div>
           <div class="anexo-tamanho">${fmtTamanho(a.tamanho||0)}</div>
         </div>
         <button class="anexo-del" onclick="delAnexoExistente(${a.id},${l.id})">✕</button>
@@ -3615,6 +3654,7 @@ function renderAnexosExistentes(l){
       </div>`).join('');
   }
   el.innerHTML=html;
+  hidratarThumbs(el);
 }
 
 function onSelecionarAnexarComprovante(input){
