@@ -391,6 +391,7 @@ def _gasto_do_espelho(cur, user_id, lanc):
 def reverter_lancamento(lid: int, user=Depends(verificar_token)):
     """Cancela um lançamento revertendo tudo:
     - ajuste de fixo: desfaz o delta no gasto e apaga o espelho;
+    - avulso vinculado: desfaz o delta no gasto e apaga o lançamento;
     - avulso: apaga o lançamento (e anexos)."""
     db = get_db(); cur = db.cursor(dictionary=True)
     cur.execute("SELECT * FROM lancamentos WHERE id=%s AND user_id=%s", (lid, user["id"]))
@@ -423,6 +424,23 @@ def reverter_lancamento(lid: int, user=Depends(verificar_token)):
             else:
                 cur.execute("INSERT INTO gasto_valores (gasto_id,idx,valor) VALUES (%s,%s,%s) ON DUPLICATE KEY UPDATE valor=%s",
                     (g["id"], mes_idx, novo, novo))
+    elif not tipo and l.get("gasto_id") and mes_idx is not None:
+        # avulso vinculado: o delta aplicado foi exatamente `valor`, então o
+        # inverso exato é subtraí-lo do valor atual do fixo.
+        cur.execute("SELECT id, nome FROM gastos WHERE id=%s AND user_id=%s", (l["gasto_id"], user["id"]))
+        grow = cur.fetchone()
+        if grow:
+            gasto_id = grow["id"]; gasto_nome = grow["nome"]
+            cur.execute("SELECT valor FROM gasto_valores WHERE gasto_id=%s AND idx=%s", (gasto_id, mes_idx))
+            row = cur.fetchone()
+            atual = float(row["valor"]) if row else 0.0
+            novo = round(atual - valor, 2)
+            valor_antes, valor_depois = atual, novo
+            if novo == 0:
+                cur.execute("DELETE FROM gasto_valores WHERE gasto_id=%s AND idx=%s", (gasto_id, mes_idx))
+            else:
+                cur.execute("INSERT INTO gasto_valores (gasto_id,idx,valor) VALUES (%s,%s,%s) ON DUPLICATE KEY UPDATE valor=%s",
+                    (gasto_id, mes_idx, novo, novo))
     # apaga arquivos dos anexos antes (o cascade limpa as linhas)
     cur.execute("SELECT nome_arquivo FROM lancamento_anexos WHERE lancamento_id=%s", (lid,))
     for a in cur.fetchall():

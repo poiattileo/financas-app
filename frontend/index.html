@@ -956,7 +956,7 @@ input[type=number]{-moz-appearance:textfield}
         <select id="ln-vincular">
           <option value="">— Não vincular —</option>
         </select>
-        <div style="font-size:11px;color:var(--muted);margin-top:4px">Só associa este registro ao gasto fixo (aparece no filtro de Registros). Não altera o valor do fixo — para isso use "Ajustar gasto fixo".</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:4px">Se selecionar um gasto, o valor será somado ao valor já definido no mês (igual ao Parcelado vinculado).</div>
       </div>
       <div class="field"><label>Recorrência</label>
         <div class="rec-chips">
@@ -1483,11 +1483,16 @@ async function desfazerUltimoLanc(){
       renderTabela();renderLancamentos();renderSobraBanner();renderSobraBanner2();renderTotais();
       toast(`Ajuste em ${u.desc||'gasto'} desfeito`);
     } else {
+      if(u.gid!=null&&u.idx!==undefined&&u.idx!==null){
+        try{await api('PUT',`/gastos/${u.gid}/valor`,{idx:u.idx,valor:u.anterior});}catch(e){}
+        const g=gastos.find(x=>x.id===u.gid);if(g)g.valores[u.idx]=u.anterior;
+        renderTabela();
+      }
       await api('DELETE',`/lancamentos/${u.lancId}`);
       lancamentos=lancamentos.filter(l=>l.id!==u.lancId);
       todosLancamentos=todosLancamentos.filter(l=>l.id!==u.lancId);
       renderLancamentos();renderSobraBanner();renderSobraBanner2();renderTotais();
-      toast('Lançamento desfeito');
+      toast(u.gid!=null?'Vínculo desfeito':'Lançamento desfeito');
     }
   }catch(e){toast('Erro ao desfazer: '+e.message,false);}
 }
@@ -2440,6 +2445,15 @@ async function addLanc(d,v,c,l,r){
   const _maEl=document.getElementById('ln-mes');const mesIdx=(_maEl&&_maEl.value!=='')?parseInt(_maEl.value):idxTrabalho();
   if(!desc||!valor){toast('Preencha descrição e valor','err');return;}
   try{
+    // avulso vinculado: soma o valor no gasto fixo (igual ao Parcelado vinculado)
+    let gVinc=null,novoValorFixo=null,anteriorFixo=null;
+    if(gidVinc){
+      gVinc=gastos.find(x=>x.id===gidVinc);
+      anteriorFixo=gVinc?(gVinc.valores[mesIdx]||0):0;
+      const resA=await api('POST','/gastos/ajuste',{gasto_id:gidVinc,idx:mesIdx,delta:valor});
+      novoValorFixo=resA.novo_valor;
+      if(gVinc)gVinc.valores[mesIdx]=novoValorFixo;
+    }
     const res=await api('POST','/lancamentos',{descricao:desc,valor,cat,local,recorrencia:rec,motivo,mes_idx:mesIdx,gasto_id:gidVinc});
     // data sintética baseada no mês selecionado
     const[y,m]=cfg.mes_inicio.split('-').map(Number);
@@ -2454,9 +2468,10 @@ async function addLanc(d,v,c,l,r){
       const anexosResp=await api('GET',`/lancamentos/${res.id}/anexos`).catch(()=>[]);
       novoLanc.anexos=anexosResp;
     }
-    closeOv('ov-lanc');renderLancamentos();renderSobraBanner();renderSobraBanner2();renderTotais();
-    ultimoLanc={modo:'avulso',lancId:res.id};
-    toastDesfazer(`${fmt(valor)} registrado!`);
+    closeOv('ov-lanc');renderTabela();renderLancamentos();renderSobraBanner();renderSobraBanner2();
+    ultimoLanc={modo:'avulso',lancId:res.id,gid:gidVinc,idx:mesIdx,anterior:anteriorFixo};
+    if(gVinc)toastDesfazer(`${gVinc.nome} → ${fmtS(novoValorFixo)}!`);
+    else toastDesfazer(`${fmt(valor)} registrado!`);
   }catch(e){toast('Erro: '+e.message,false);}
 }
 async function confirmarRepetir(){if(!repetirLanc)return;await addLanc(repetirLanc.descricao,repetirLanc.valor,repetirLanc.cat,repetirLanc.local_nome,repSel);closeOv('ov-repetir');}
@@ -2471,7 +2486,17 @@ function acharGastoDoAjuste(l){
   return{g:null};
 }
 function textoReverter(l){
-  if(!l.tipo_ajuste)return `Reverter lançamento?\n"${l.descricao}" — ${fmt(l.valor)}\nApaga o lançamento${l.anexos&&l.anexos.length?` e ${l.anexos.length} anexo(s)`:''}.`;
+  if(!l.tipo_ajuste){
+    if(l.gasto_id!=null&&l.mes_idx!==null&&l.mes_idx!==undefined){
+      const g=gastos.find(x=>x.id===l.gasto_id);
+      if(g){
+        const atual=g.valores[l.mes_idx]||0;
+        const novo=round2(atual-l.valor);
+        return `Reverter lançamento vinculado?\n"${l.descricao}" — ${fmt(l.valor)}\n${g.nome}: ${fmtS(atual)} → ${fmtS(novo)}\nO valor será devolvido ao gasto fixo.`;
+      }
+    }
+    return `Reverter lançamento?\n"${l.descricao}" — ${fmt(l.valor)}\nApaga o lançamento${l.anexos&&l.anexos.length?` e ${l.anexos.length} anexo(s)`:''}.`;
+  }
   const op=l.tipo_ajuste==='subtrair'?'desconto':'acréscimo';
   const{g,aproximado}=acharGastoDoAjuste(l);
   if(g){
