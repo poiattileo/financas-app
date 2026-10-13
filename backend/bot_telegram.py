@@ -28,6 +28,7 @@ Comandos:
   /receber         - marcar cobrança como paga por botões (conta → pessoa → mês)
   /relatorio       - relatorio estilo WhatsApp (pergunta gasto fixo + mes)
   /relatorios      - relatorios rapidos do mes
+  /fixos           - lista todos os gastos fixos (nome + valor do mes)
   /cancelar        - cancela a conversa atual
 """
 import os
@@ -166,6 +167,10 @@ def fbrs(v):
     if v < 0:
         return f"-R$ {s}"
     return "R$ 0,00"
+
+def fnum(v):
+    """Formata numero com virgula (sem R$), mantendo o sinal."""
+    return f"{float(v):.2f}".replace(".", ",")
 
 def aplicar_ajuste(atual, delta_typed):
     """delta negativo (desconto) aproxima de zero; positivo (acréscimo) afasta.
@@ -349,6 +354,33 @@ def relatorio_gastos_fixos(user):
         return "📋 Nenhum gasto fixo com valor neste mês."
     linhas = "\n".join([f"• {nome}: {fbrs(v)}" for nome, v in sorted(d["detalhes_fixos"], key=lambda x:-abs(x[1]))])
     return f"📋 *Gastos fixos do mês:*\n\n{linhas}\n\n*Total: {fbrs(d['fixos'])}*"
+
+def lista_gastos_fixos(user):
+    """Lista TODOS os gastos fixos cadastrados + valor do mês de trabalho."""
+    mes_inicio = user.get("mes_inicio") or ""
+    idx = idx_trabalho(mes_inicio)
+    db = get_db(); cur = db.cursor(dictionary=True)
+    cur.execute("SELECT id, nome FROM gastos WHERE user_id=%s ORDER BY nome", (user["id"],))
+    gastos = cur.fetchall()
+    total = 0.0
+    linhas = []
+    for g in gastos:
+        cur.execute("SELECT valor FROM gasto_valores WHERE gasto_id=%s AND idx=%s", (g["id"], idx))
+        row = cur.fetchone()
+        v = float(row["valor"]) if row else 0.0
+        if v != 0:
+            total += v
+            linhas.append(f"• {g['nome']}: {fbrs(v)}")
+        else:
+            linhas.append(f"• {g['nome']}: sem valor")
+    cur.close(); db.close()
+    if not linhas:
+        return "📋 Nenhum gasto fixo cadastrado ainda. Cadastre no site primeiro."
+    mes_nome = nome_mes_longo(mes_inicio, idx)
+    txt = f"📋 *Seus gastos fixos — {mes_nome}*\n\n" + "\n".join(linhas)
+    if total:
+        txt += f"\n\n*Total: {fbrs(total)}*"
+    return txt
 
 def relatorio_lancamentos_mes(user):
     idx = idx_trabalho(user.get("mes_inicio") or "")
@@ -761,7 +793,7 @@ def resumo_confirmacao(user, est):
     mes_inicio = user.get("mes_inicio") or ""
     if est["tipo"] == "parcelado":
         if p["kind"] == "pfixo":
-            linhas = [f"{nome_mes_idx(mes_inicio, i)}: R$ {a:.2f} → R$ {d:.2f}"
+            linhas = [f"{nome_mes_idx(mes_inicio, i)}: R$ {fnum(a)} → R$ {fnum(d)}"
                        for (i, a, d) in p["linhas"][:10]]
             if len(p["linhas"]) > 10:
                 linhas.append(f"… (+{len(p['linhas']) - 10} meses)")
@@ -770,10 +802,17 @@ def resumo_confirmacao(user, est):
             if p["ignoradas"] > 0:
                 txt += f"\n⚠️ {p['ignoradas']} além de 48 meses ignoradas."
         else:
+            linhas = []
+            for k in range(p["qtd"]):
+                i = p["idx_ini"] + k
+                linhas.append(f"{nome_mes_idx(mes_inicio, i)}: R$ {fnum(0)} → R$ {fnum(-abs(p['vp']))}")
+            if p["qtd"] > 10:
+                linhas = linhas[:10] + [f"… (+{p['qtd'] - 10} meses)"]
             txt = (f"💳 *Confirma a parcelada?*\n*{limpar_md(p['nome'])}* — "
-                   f"{p['qtd']}x de R$ {abs(p['vp']):.2f} (total R$ {abs(p['total']):.2f})\n"
+                   f"{p['qtd']}x de R$ {fnum(abs(p['vp']))} (total R$ {fnum(abs(p['total']))})\n"
                    f"📅 {nome_mes_idx(mes_inicio, p['idx_ini'])} → "
-                   f"{nome_mes_idx(mes_inicio, p['idx_ini'] + p['qtd'] - 1)}\nNova compra separada.")
+                   f"{nome_mes_idx(mes_inicio, p['idx_ini'] + p['qtd'] - 1)} · Nova compra separada\n"
+                   + "\n".join(linhas))
         if p.get("motivo"):
             txt += f"\n💬 _{limpar_md(p['motivo'])}_"
         return txt
@@ -781,11 +820,15 @@ def resumo_confirmacao(user, est):
         txt = (f"⚡ *Confirma o lançamento?*\n*{limpar_md(p['gasto_nome'])}* — "
                f"{nome_mes_longo(mes_inicio, p['idx'])}\n"
                f"Antes: {fbrs(p['anterior'])}\n"
-               f"Ajuste: {'−' if p['valor'] < 0 else '+'} R$ {p['valor_abs']:.2f}\n"
+               f"Ajuste: {'−' if p['valor'] < 0 else '+'} R$ {fnum(p['valor_abs'])}\n"
                f"*Depois: {fbrs(p['novo'])}*")
     else:
+        d = calc_totais_mes(user, p["idx"])
+        antes_lanc = d["lancamentos"]
+        depois_lanc = round(antes_lanc + p["valor_abs"], 2)
         txt = (f"⚡ *Confirma o lançamento?*\nNovo avulso: *{limpar_md(p['desc'])}* — "
-               f"R$ {p['valor_abs']:.2f}\n📅 {nome_mes_longo(mes_inicio, p['idx'])}")
+               f"R$ {fnum(p['valor_abs'])}\n📅 {nome_mes_longo(mes_inicio, p['idx'])}\n"
+               f"Lançamentos do mês: R$ {fnum(antes_lanc)} → R$ {fnum(depois_lanc)}")
     if p.get("motivo"):
         txt += f"\n💬 _{limpar_md(p['motivo'])}_"
     if nf:
@@ -1222,10 +1265,18 @@ def processar_mensagem(chat_id, texto):
                 "/receber — marcar cobrança como paga (só botões)\n"
                 "/relatorio — relatório estilo WhatsApp (pergunta gasto + mês)\n"
                 "/relatorios — relatórios rápidos do mês\n"
+                "/fixos — lista seus gastos fixos (nome + valor do mês)\n"
                 "/ajuda — formato da mensagem direta\n"
                 "/cancelar — cancela a conversa atual\n"
                 "/vincular 123456 — vincula tua conta\n"
                 "/desvincular — desvincula")
+
+    if texto == "/fixos" or texto.startswith("/fixos "):
+        user = buscar_usuario_por_chat(chat_id)
+        if not user:
+            return ("⚠️ Você ainda não está vinculado a nenhuma conta.\n"
+                    "Vá em Configurações no site, gere um código, e me envie:\n`/vincular 123456`")
+        return lista_gastos_fixos(user)
 
     if texto == "/receber" or texto.startswith("/receber ") or texto == "/cobrar" or texto.startswith("/cobrar "):
         user = buscar_usuario_por_chat(chat_id)
