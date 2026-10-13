@@ -15,6 +15,8 @@ CREATE TABLE IF NOT EXISTS usuarios (
     role              VARCHAR(20) DEFAULT 'user',
     telegram_chat_id  VARCHAR(50) DEFAULT NULL,
     telegram_link_code VARCHAR(10) DEFAULT NULL,
+    telegram_last_seen     DATETIME DEFAULT NULL,
+    telegram_last_reminder DATETIME DEFAULT NULL,
     criado_em         DATETIME DEFAULT NOW()
 );
 

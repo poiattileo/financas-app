@@ -54,6 +54,8 @@ BOT_TOKEN = env.get("TELEGRAM_BOT_TOKEN", "")
 API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 UPLOAD_DIR = env.get("UPLOAD_DIR", "/opt/financas/uploads")
 
+LEMBRETE_HORAS_INATIVO = 24
+
 MESES_PT = {
     "janeiro":1,"fevereiro":2,"marco":3,"março":3,"abril":4,"maio":5,"junho":6,
     "julho":7,"agosto":8,"setembro":9,"outubro":10,"novembro":11,"dezembro":12,
@@ -370,9 +372,9 @@ def lista_gastos_fixos(user):
         v = float(row["valor"]) if row else 0.0
         if v != 0:
             total += v
-            linhas.append(f"• {g['nome']}: {fbrs(v)}")
+            linhas.append(f"• *{limpar_md(g['nome'])}*: {fbrs(v)}")
         else:
-            linhas.append(f"• {g['nome']}: sem valor")
+            linhas.append(f"• *{limpar_md(g['nome'])}*: sem valor")
     cur.close(); db.close()
     if not linhas:
         return "📋 Nenhum gasto fixo cadastrado ainda. Cadastre no site primeiro."
@@ -1259,17 +1261,7 @@ def processar_mensagem(chat_id, texto):
                 "Ou use /lancar para o registro guiado (rápido ou parcelado).")
 
     if texto.startswith("/comandos"):
-        return ("⌨️ *Comandos:*\n"
-                "/lancar — registro guiado (rápido ou parcelado)\n"
-                "/reverter — cancela um lançamento (desfaz do fixo)\n"
-                "/receber — marcar cobrança como paga (só botões)\n"
-                "/relatorio — relatório estilo WhatsApp (pergunta gasto + mês)\n"
-                "/relatorios — relatórios rápidos do mês\n"
-                "/fixos — lista seus gastos fixos (nome + valor do mês)\n"
-                "/ajuda — formato da mensagem direta\n"
-                "/cancelar — cancela a conversa atual\n"
-                "/vincular 123456 — vincula tua conta\n"
-                "/desvincular — desvincula")
+        return texto_comandos()
 
     if texto == "/fixos" or texto.startswith("/fixos "):
         user = buscar_usuario_por_chat(chat_id)
@@ -1379,10 +1371,68 @@ def processar_mensagem(chat_id, texto):
     except Exception as e:
         return f"❌ Erro ao processar: {e}"
 
+def texto_comandos():
+    return ("⌨️ *Comandos:*\n"
+            "/lancar — registro guiado (rápido ou parcelado)\n"
+            "/reverter — cancela um lançamento (desfaz do fixo)\n"
+            "/receber — marcar cobrança como paga (só botões)\n"
+            "/relatorio — relatório estilo WhatsApp (pergunta gasto + mês)\n"
+            "/relatorios — relatórios rápidos do mês\n"
+            "/fixos — lista seus gastos fixos (nome + valor do mês)\n"
+            "/ajuda — formato da mensagem direta\n"
+            "/cancelar — cancela a conversa atual\n"
+            "/vincular 123456 — vincula tua conta\n"
+            "/desvincular — desvincula")
+
+def garantir_colunas_lembrete():
+    try:
+        db = get_db(); cur = db.cursor()
+        cur.execute("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS telegram_last_seen DATETIME DEFAULT NULL")
+        cur.execute("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS telegram_last_reminder DATETIME DEFAULT NULL")
+        cur.close(); db.close()
+    except Exception as e:
+        print(f"[schema] aviso ao garantir colunas do lembrete: {e}")
+
+def marcar_atividade(chat_id):
+    try:
+        db = get_db(); cur = db.cursor()
+        cur.execute("UPDATE usuarios SET telegram_last_seen=NOW() WHERE telegram_chat_id=%s", (str(chat_id),))
+        cur.close(); db.close()
+    except Exception as e:
+        print(f"[atividade] erro: {e}")
+
+def enviar_lembretes():
+    try:
+        db = get_db(); cur = db.cursor(dictionary=True)
+        cur.execute(
+            "SELECT id, telegram_chat_id FROM usuarios "
+            "WHERE telegram_chat_id IS NOT NULL AND telegram_last_seen IS NOT NULL "
+            f"AND telegram_last_seen <= NOW() - INTERVAL {int(LEMBRETE_HORAS_INATIVO)} HOUR "
+            "AND (telegram_last_reminder IS NULL OR telegram_last_reminder < telegram_last_seen)")
+        for u in cur.fetchall():
+            enviar_msg(u["telegram_chat_id"],
+                       "🤖 Ei! Faz um tempo que você não manda nada. Aqui vão os comandos:\n\n"
+                       + texto_comandos())
+            cur.execute("UPDATE usuarios SET telegram_last_reminder=NOW() WHERE id=%s", (u["id"],))
+        cur.close(); db.close()
+    except Exception as e:
+        print(f"[lembrete] erro: {e}")
+
+_ultimo_lembrete_check = 0.0
+
+def talvez_enviar_lembretes():
+    global _ultimo_lembrete_check
+    agora = time.time()
+    if agora - _ultimo_lembrete_check < 60:
+        return
+    _ultimo_lembrete_check = agora
+    enviar_lembretes()
+
 def main():
     if not BOT_TOKEN:
         print("[ERRO] TELEGRAM_BOT_TOKEN não configurado no .env")
         return
+    garantir_colunas_lembrete()
     print("[bot] iniciado, aguardando mensagens...")
     offset = None
     while True:
@@ -1399,6 +1449,7 @@ def main():
                 cq = update.get("callback_query")
                 if cq:
                     chat_id = cq["message"]["chat"]["id"]
+                    marcar_atividade(chat_id)
                     callback_data = cq.get("data", "")
                     print(f"[callback] chat={chat_id}: {callback_data}")
                     responder_callback(cq["id"])
@@ -1415,6 +1466,7 @@ def main():
                 # foto (comprovante do /lancar rápido)
                 if "photo" in msg and "text" not in msg:
                     chat_id = msg["chat"]["id"]
+                    marcar_atividade(chat_id)
                     print(f"[foto] chat={chat_id}")
                     resposta = processar_foto(chat_id, msg)
                     if isinstance(resposta, tuple):
@@ -1425,6 +1477,7 @@ def main():
                 if "text" not in msg:
                     continue
                 chat_id = msg["chat"]["id"]
+                marcar_atividade(chat_id)
                 texto = msg["text"]
                 print(f"[recebido] chat={chat_id}: {texto[:50]}")
                 resposta = processar_mensagem(chat_id, texto)
@@ -1436,6 +1489,7 @@ def main():
                     enviar_msg(chat_id, "🧾 *O que vai ser?*", teclado=menu_lancar())
                 else:
                     enviar_msg(chat_id, resposta)
+            talvez_enviar_lembretes()
         except Exception as e:
             print(f"[erro no loop] {e}")
             time.sleep(5)

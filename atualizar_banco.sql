@@ -80,6 +80,8 @@ ALTER TABLE lancamentos ADD COLUMN IF NOT EXISTS mes_idx TINYINT DEFAULT NULL;
 -- Colunas telegram (usadas pela API/bot)
 ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS telegram_chat_id VARCHAR(50) DEFAULT NULL;
 ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS telegram_link_code VARCHAR(10) DEFAULT NULL;
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS telegram_last_seen DATETIME DEFAULT NULL;
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS telegram_last_reminder DATETIME DEFAULT NULL;
 
 -- Índices de mês como INT (suporta deslocamento p/ histórico e 48 meses)
 ALTER TABLE gasto_valores MODIFY COLUMN idx INT NOT NULL;
